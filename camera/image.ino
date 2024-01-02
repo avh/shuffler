@@ -1,8 +1,7 @@
-
+// (c)2024, Arthur van Hoff, Artfahrt Inc.
+//
 #include "defs.h"
-#define r565(v)     ((v) & 0x00F8)
-#define g565(v)     ((((v) & 0x0007) << 5) | (((v) & 0xE000) >> 11))
-#define b565(v)     (((v) & 0x1F00) >> 5)
+
 #define convert565(v) (b565(v) + g565(v))
 
 // unpack 565, convert to grayscale, rotate, scale down
@@ -19,8 +18,6 @@ void unpack_565(unsigned short *src, int src_stride, unsigned char *dst, int dst
 
 void unpack_cardsuit(unsigned short *src, int src_stride, unsigned char *dst, int dst_stride)
 {
-  //unpack_565(src + CARD_COL + CARD_ROW*src_stride, src_stride, dst, CARD_WIDTH, CARD_HEIGHT, dst_stride);
-  //unpack_565(src + SUIT_COL + SUIT_ROW*src_stride, src_stride, dst + CARD_HEIGHT*dst_stride, SUIT_WIDTH, SUIT_HEIGHT, dst_stride);
   unpack_565(src + CARDSUIT_COL + CARDSUIT_ROW*src_stride, src_stride, dst, CARDSUIT_WIDTH, CARDSUIT_HEIGHT, dst_stride);
 }
 

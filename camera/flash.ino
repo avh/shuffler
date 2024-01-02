@@ -1,3 +1,5 @@
+// (c)2024, Arthur van Hoff, Artfahrt Inc.
+//
 #include <BlockDevice.h>
 #include <MBRBlockDevice.h>
 #include <FATFileSystem.h>
@@ -11,7 +13,7 @@ static mbed::BlockDevice *root = mbed::BlockDevice::get_default_instance();
 static mbed::MBRBlockDevice user_data(root, 2);
 static mbed::FATFileSystem user_fs("user");
 
-void handle_listdir(WiFiClient &client, const char *path) 
+void handle_listdir(HTTP &http, const char *path) 
 {
   char buf[64];
   DIR *d = opendir(path);
@@ -21,10 +23,10 @@ void handle_listdir(WiFiClient &client, const char *path)
         continue;
       }
       if (p->d_type == DT_DIR) {
-        snprintf(buf, sizeof(buf), "%s/%s/", path, p->d_name);
-        client.println(buf);
+        http.printf("%s/%s/\n", path, p->d_name);
+
         snprintf(buf, sizeof(buf), "%s/%s", path, p->d_name);
-        handle_listdir(client, buf);
+        handle_listdir(http, buf);
       } else {
         snprintf(buf, sizeof(buf), "%s/%s", path, p->d_name);
         FILE *fp = fopen(buf, "r");
@@ -35,41 +37,34 @@ void handle_listdir(WiFiClient &client, const char *path)
           fclose(fp);
         }
         snprintf(buf, sizeof(buf), "%s/%s", path, p->d_name);
-        client.print(buf);
+        http.printf(buf);
         for (int i = 32 - strlen(buf) ; i-- > 0 ;) {
-          client.print(" ");
+          http.printf(" ");
         }
-        snprintf(buf, sizeof(buf), "%10d", bytes);
-        client.println(buf);
+        http.printf( "%10d\n", bytes);
       }
     }
     closedir(d);
   } else {
-    client.println("failed to open directory");
+    http.printf("failed to open directory\n");
   }
 }
 
-void handle_list(WiFiClient &client, String &path) 
+void handle_list(HTTP &http) 
 {
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-type:text/plain");
-  client.println("Connection: close");
-  client.println();
-  client.print("Listing");
-  client.println();
-
-  // listing
-  //client.println("--");
-  //handle_listdir(client, "/wifi");
-  client.println("--");
-  handle_listdir(client, "/user");
-  client.println("--");
+  http.begin(200, "List Follows");
+  http.end();
+  http.printf("Listing\n");
+  
+  http.printf("--\n");
+  handle_listdir(http, "/user");
+  http.printf("--\n");
 }
 
 void flash_init() 
 {
   user_fs.mount(&user_data);
-  wifi_handler("/list", handle_list);
+  HTTP::add("/list", handle_list);
 }
 
 void flash_check() 

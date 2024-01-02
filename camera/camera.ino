@@ -1,6 +1,9 @@
+// (c)2024, Arthur van Hoff, Artfahrt Inc.
+//
 #include <WiFi.h>
 #include <Wire.h>   
 #include "defs.h"
+#include "http.h"
 
 #define LIGHT_PIN         3
 
@@ -38,29 +41,24 @@ int eject_card()
   }
 }
 
-void send_frame_png(WiFiClient& client)
+void send_frame_png(HTTP& http)
 {
   int pnglen = 3*frame_width*frame_height;
-  uint8_t *pngbuf = (uint8_t *)malloc(pnglen);
-  int content_length = png_encode_565(pngbuf, pnglen, (unsigned short *)frame_data, frame_width, frame_height, frame_width);
+  auto pngbuf = std::shared_ptr<uint8_t[]>(new uint8_t[pnglen]);
+  int content_length = png_encode_565(pngbuf.get(), pnglen, (unsigned short *)frame_data, frame_width, frame_height, frame_width);
   if (content_length >= 0) {
-    char buf[64];
-    client.println("HTTP/1.1 200 File Follows");
-    client.println("Connection: close");
-    snprintf(buf, sizeof(buf), "Content-Length: %d", content_length);
-    client.println(buf);
-    client.println("Content-Type: image/png");
-    client.println();
-    client.write(pngbuf, content_length);
+    http.begin(200, "File Follows");
+    http.printf("Content-Length: %d\n", content_length);
+    http.printf("Content-Type: image/png\n");
+    http.end();
+    http.write(pngbuf.get(), content_length);
   } else {
-    client.println("HTTP/1.1 404 PNG failed");
-    client.println("Connection: close");
-    client.println();
+    http.begin(404, "PNG failed");
+    http.end();
   }
-  delete(pngbuf);
 }
 
-void send_frame(WiFiClient& client, String& path) 
+void send_frame(HTTP &http) 
 {
   struct {
     unsigned short frame_nr;
@@ -70,36 +68,30 @@ void send_frame(WiFiClient& client, String& path)
     frame_nr, frame_width, frame_height
   };
 
-  char buf[64];
-
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-type: application/octet-stream");  //multipart/byteranges
-  snprintf(buf, sizeof(buf), "Content-Length: %u", sizeof(hdr) + frame_size);
-  client.println(buf);
-  client.println("Connection: close");
-  client.println();
-  client.write((unsigned char *)&hdr, sizeof(hdr));
-  client.write(frame_data, frame_size);
+  http.begin(200, "OK");
+  http.printf("Content-type: application/octet-stream\n");
+  http.printf("Content-Length: %d\n", sizeof(hdr) + frame_size);
+  http.end();
+  http.write((unsigned char *)&hdr, sizeof(hdr));
+  http.write(frame_data, frame_size);
 }
 
-void handle_frame(WiFiClient& client, String& path)
+void handle_frame(HTTP &http)
 {
   if (frame_nr == last_frame_nr) {
-    client.println("HTTP/1.1 404 No New Frame Available");
-    client.println("Connection: close");
-    client.println();
-    return;
+    http.begin(404, "No New Frame Available");
+    http.end();
+  } else {
+    last_frame_nr = frame_nr;
+    send_frame(http);
   }
-  last_frame_nr = frame_nr;
-  send_frame(client, path);
 }
 
-void send_cardsuit(WiFiClient& client, String& path) 
+void send_cardsuit(HTTP &http) 
 {
   if (cardsuit_data == NULL) {
-    client.println("HTTP/1.1 404 No Data Allocated");
-    client.println("Connection: close");
-    client.println();
+    http.begin(404, "No Data Allocated");
+    http.end();
     return;
   }
 
@@ -111,41 +103,36 @@ void send_cardsuit(WiFiClient& client, String& path)
     frame_nr, CARDSUIT_WIDTH*14, CARDSUIT_HEIGHT*4
   };
 
-  char buf[64];
-
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-type: application/octet-stream");  //multipart/byteranges
-  snprintf(buf, sizeof(buf), "Content-Length: %u", sizeof(hdr) + cardsuit_size);
-  client.println(buf);
-  client.println("Connection: close");
-  client.println();
-  client.write((unsigned char *)&hdr, sizeof(hdr));
-  client.write(cardsuit_data, cardsuit_size);
+  http.begin(200, "OK");
+  http.printf("Content-type: application/octet-stream\n");
+  http.printf("Content-Length: %d\n", sizeof(hdr) + cardsuit_size);
+  http.end();
+  http.write((unsigned char *)&hdr, sizeof(hdr));
+  http.write(cardsuit_data, cardsuit_size);
 }
 
-void handle_cardsuit(WiFiClient& client, String& path)
+void handle_cardsuit(HTTP& http)
 {
   if (frame_nr == last_card_nr) {
-    client.println("HTTP/1.1 404 No New Card Available");
-    client.println("Connection: close");
-    client.println();
-    return;
+    http.begin(404, "No New Card Available");
+    http.end();
+  } else {
+    last_card_nr = frame_nr;
+    send_cardsuit(http);
   }
-  last_card_nr = frame_nr;
-  send_cardsuit(client, path);
 }
 
-void handle_snapshot(WiFiClient& client, String& path)
+void handle_snapshot(HTTP &http)
 {
   if (flash_on == 0) {
     digitalWrite(LIGHT_PIN, HIGH);
     delay(100);
   }
   capture_frame();
-  send_frame_png(client);
+  send_frame_png(http);
 }
 
-void handle_capture(WiFiClient& client, String& path) 
+void handle_capture(HTTP &http) 
 {
   if (flash_on == 0) {
     digitalWrite(LIGHT_PIN, HIGH);
@@ -153,7 +140,9 @@ void handle_capture(WiFiClient& client, String& path)
   }
   flash_on = millis();
   int result = capture_frame();
-  wifi_response(client, "captured frame_nr=%d, %dx%d, bytes=%u, cardsuit=%d,%d, result=%d", 
+  http.begin(200, "Capture OK");
+  http.end();
+  http.printf("captured frame_nr=%d, %dx%d, bytes=%u, cardsuit=%d,%d, result=%d\n", 
     frame_nr, frame_width, frame_height, frame_size, cardsuit_row, cardsuit_col, result);
 
   if (result == 0 && cardsuit_data != NULL) {
@@ -162,10 +151,12 @@ void handle_capture(WiFiClient& client, String& path)
   }
 }
 
-void handle_eject(WiFiClient& client, String& path) 
+void handle_eject(HTTP &http) 
 {
   int eject_result = eject_card();
-  wifi_response(client, "eject result=%d", eject_result);
+  http.begin(200, "Eject OK");
+  http.end();
+  http.printf("eject result=%d\n", eject_result);
 
   if (eject_result == HOPPER_EMPTY) {
     cardsuit_row = 3;
@@ -179,7 +170,7 @@ void handle_eject(WiFiClient& client, String& path)
   }
 }
 
-void handle_calibrate(WiFiClient& client, String& path) 
+void handle_calibrate(HTTP &http) 
 {
   if (cardsuit_data == NULL) {
     cardsuit_stride = CARDSUIT_NCOLS * CARDSUIT_WIDTH;
@@ -193,9 +184,8 @@ void handle_calibrate(WiFiClient& client, String& path)
     }
   }
   if (cardsuit_data == NULL) {
-    client.println("HTTP/1.1 404 Could not allocate Calibration Data");
-    client.println("Connection: close");
-    client.println();
+    http.begin(404, "Could not allocate Calibration Data");
+    http.end();
     return;
   }
 
@@ -234,15 +224,15 @@ void handle_calibrate(WiFiClient& client, String& path)
       cardsuit_row = (cardsuit_row + 1) % 4;
     }
   }
-
-  wifi_response(client, "calibrate count=%d", count);
+  http.begin(200, "Calibrate OK");
+  http.end();
+  http.printf("calibrate count=%d\n", count);
   flash_on = millis();
   frame_nr++;
 }
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial);
+  util_init("camera");
   flash_init();
 
   dprintf("=== camera module ===");
@@ -250,15 +240,16 @@ void setup() {
   Wire.setTimeout(1000);
   capture_init();
   image_init();
+  http_init();
 
   if (true) {
     wifi_init("Vliegveld", "AB12CD34EF56G");
-    wifi_handler("/capture", handle_capture);
-    wifi_handler("/snapshot", handle_snapshot);
-    wifi_handler("/frame", handle_frame);
-    wifi_handler("/eject", handle_eject);
-    wifi_handler("/cardsuit", handle_cardsuit);
-    wifi_handler("/calibrate", handle_calibrate);
+    HTTP::add("/capture", handle_capture);
+    HTTP::add("/snapshot.png", handle_snapshot);
+    HTTP::add("/frame", handle_frame);
+    HTTP::add("/eject", handle_eject);
+    HTTP::add("/cardsuit", handle_cardsuit);
+    HTTP::add("/calibrate", handle_calibrate);
   }
 
   pinMode(LIGHT_PIN, OUTPUT);

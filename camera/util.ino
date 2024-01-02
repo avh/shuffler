@@ -1,3 +1,5 @@
+// (c)2024, Arthur van Hoff, Artfahrt Inc.
+//
 #include <stdarg.h>
 
 void dprintf(char *fmt, ...)
@@ -10,31 +12,45 @@ void dprintf(char *fmt, ...)
   Serial.write("\n");
 }
 
-#define NEVTS   100
-unsigned long tms[NEVTS];
-char *cmds[NEVTS];
-int args[NEVTS];
-int nevents = 0;
+#define MAX_EVENTS   100
+
+struct event {
+  int tm;
+  const char *cmd;
+  int arg;
+};
+static struct event *evts = NULL;
+static int nevts = 0;
 
 void reset_events()
 {
-  nevents = 0;
+  nevts = 0;
 }
 
-void add_event(char *cmd, int arg) {
-  if (nevents < NEVTS) {
-    tms[nevents] = millis();
-    cmds[nevents] = cmd;
-    args[nevents] = arg;
-    nevents++;
+void add_event(char *cmd, int arg) 
+{
+  if (evts == NULL) {
+    evts = (struct event *)malloc(MAX_EVENTS * sizeof(struct event));
+  }
+  if (evts != NULL && nevts < MAX_EVENTS) {
+    evts[nevts].tm = millis();
+    evts[nevts].cmd = cmd;
+    evts[nevts].arg = arg;
+    nevts++;
   }
 }
 
 void dump_events()
 {
-  unsigned long tm = tms[0];
-  for (int i = 0 ; i < nevents ; i++) {
-      dprintf("%4d: %4ld %s %d", i, tms[i] - tm, cmds[i], args[i]);
+  for (int i = 0 ; i < nevts ; i++) {
+      dprintf("%4d: %4ld %s %d", i, evts[i].tm - evts[0].tm, evts[i].cmd, evts[i].arg);
   }
-  nevents = 0;
+  nevts = 0;
+}
+
+void util_init(const char *msg)
+{
+  Serial.begin(SERIAL_BAUDRATE);
+  for (int tm = millis() ; millis() < tm + 10000 && !Serial ; delay(1));
+  dprintf("== %s ==\n", msg);
 }

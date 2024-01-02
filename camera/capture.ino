@@ -1,20 +1,25 @@
+// (c)2024, Arthur van Hoff, Artfahrt Inc.
+//
 #include <camera.h>
 #include "gc2145.h"
 
+static FrameBuffer fb;
+static GC2145 galaxyCore;
+static Camera cam(galaxyCore);
+
+unsigned char *frame_data = NULL;
 int frame_nr = 0;
-FrameBuffer fb;
-GC2145 galaxyCore;
-Camera cam(galaxyCore);
-unsigned char *frame_data;
-size_t frame_size;
-int frame_width;
-int frame_height;
+size_t frame_size = 0;
+int frame_width = 0;
+int frame_height = 0;
 
 void capture_init()
 {
   if (!cam.begin(CAMERA_R160x120, CAMERA_RGB565, 30)) {
     dprintf("camera failed");
   }
+  frame_width = 160;
+  frame_height = 120;
 }
 
 int capture_frame()
@@ -25,8 +30,6 @@ int capture_frame()
   }
   frame_data = fb.getBuffer();
   frame_size = cam.frameSize();
-  frame_width = 160;
-  frame_height = 120;
   frame_nr = frame_nr + 1;
   return 0;
 }

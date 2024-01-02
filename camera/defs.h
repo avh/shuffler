@@ -7,6 +7,9 @@
 // Use Examples/STM32H747_System/QSPIFReadPartitions to list partitions
 // Use Examples/STM32H747_System/WiFiFirmwareUpdater to install wifi firmware
 //
+#pragma once
+
+#define SERIAL_BAUDRATE   115200
 
 #define MOTOR_ADDR        0x3
 #define MOTOR_CMD_EJECT   1
