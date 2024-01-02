@@ -38,13 +38,26 @@ int eject_card()
   }
 }
 
-void handle_index(WiFiClient& client, String& path) {
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-type: text/html");
-  client.println("Connection: close");
-  client.println();
-  client.println("You are back...");
-  client.println();
+void send_frame_png(WiFiClient& client)
+{
+  int pnglen = 3*frame_width*frame_height;
+  uint8_t *pngbuf = (uint8_t *)malloc(pnglen);
+  int content_length = png_encode_565(pngbuf, pnglen, (unsigned short *)frame_data, frame_width, frame_height, frame_width);
+  if (content_length >= 0) {
+    char buf[64];
+    client.println("HTTP/1.1 200 File Follows");
+    client.println("Connection: close");
+    snprintf(buf, sizeof(buf), "Content-Length: %d", content_length);
+    client.println(buf);
+    client.println("Content-Type: image/png");
+    client.println();
+    client.write(pngbuf, content_length);
+  } else {
+    client.println("HTTP/1.1 404 PNG failed");
+    client.println("Connection: close");
+    client.println();
+  }
+  delete(pngbuf);
 }
 
 void send_frame(WiFiClient& client, String& path) 
@@ -120,6 +133,16 @@ void handle_cardsuit(WiFiClient& client, String& path)
   }
   last_card_nr = frame_nr;
   send_cardsuit(client, path);
+}
+
+void handle_snapshot(WiFiClient& client, String& path)
+{
+  if (flash_on == 0) {
+    digitalWrite(LIGHT_PIN, HIGH);
+    delay(100);
+  }
+  capture_frame();
+  send_frame_png(client);
 }
 
 void handle_capture(WiFiClient& client, String& path) 
@@ -230,8 +253,8 @@ void setup() {
 
   if (true) {
     wifi_init("Vliegveld", "AB12CD34EF56G");
-    wifi_handler("/", handle_index);
     wifi_handler("/capture", handle_capture);
+    wifi_handler("/snapshot", handle_snapshot);
     wifi_handler("/frame", handle_frame);
     wifi_handler("/eject", handle_eject);
     wifi_handler("/cardsuit", handle_cardsuit);

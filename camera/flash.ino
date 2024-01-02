@@ -5,7 +5,7 @@
 #include <QSPIFBlockDevice.h>
 #include "defs.h"
 
-USBMSD __attribute__ ((init_priority (1))) MassStorage(mbed::BlockDevice::get_default_instance());
+//USBMSD __attribute__ ((init_priority (1))) MassStorage(mbed::BlockDevice::get_default_instance());
 
 static mbed::BlockDevice *root = mbed::BlockDevice::get_default_instance();
 static mbed::MBRBlockDevice user_data(root, 2);

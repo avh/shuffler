@@ -24,3 +24,7 @@
 
 #define CARDSUIT_WIDTH        25
 #define CARDSUIT_HEIGHT       64
+
+#define r565(v)     ((v) & 0x00F8)
+#define g565(v)     ((((v) & 0x0007) << 5) | (((v) & 0xE000) >> 11))
+#define b565(v)     (((v) & 0x1F00) >> 5)
