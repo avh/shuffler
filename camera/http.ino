@@ -20,7 +20,7 @@ void HTTP::add(const char *prefix, void (*handler)(HTTP &))
   }
 }
 
-HTTP::HTTP(WiFiClient &client, String &path) : client(client), path(path)
+HTTP::HTTP(WiFiClient &client, String &method, String &path) : client(client), method(method), path(path)
 {
 }
 
@@ -45,7 +45,7 @@ void HTTP::end()
     client.println("Connection: close");
     client.println();
   }
-  state = 2;
+  state = method == "HEAD" ? 4 : 2;
 }
 
 int HTTP::write(unsigned char *buf, int len)
@@ -57,8 +57,20 @@ int HTTP::write(unsigned char *buf, int len)
       end();
     case 2:
       state = 3;
+    case 3:
+      break;
+    case 4:
+      return len;
   }
-  return client.write(buf, len);
+  for (int off = 0 ; off < len ; ) {
+    int n = client.write(buf + off, min(1024, len - off));
+    if (n < 0) {
+      state = 4;
+      return off;
+    }
+    off += n;
+  }
+  return len;
 }
 
 void file_handler(HTTP &http)
@@ -108,9 +120,9 @@ void file_handler(HTTP &http)
   fclose(fp);
 }
 
-void HTTP::dispatch(WiFiClient &client, String &path)
+void HTTP::dispatch(WiFiClient &client, String &method, String &path)
 {
-  HTTP http(client, path);
+  HTTP http(client, method, path);
 
   for (int i = 0 ; i < nhandlers ; i++) {
     if (path.startsWith(handlers[i].prefix)) {
@@ -131,6 +143,7 @@ void HTTP::dispatch(WiFiClient &client, String &path)
 void HTTP::handle(WiFiClient &client)
 {
   String currentLine = "";
+  String method = "";
   String path = "";
   while (client.connected()) {
     if (client.available()) {
@@ -138,13 +151,14 @@ void HTTP::handle(WiFiClient &client)
       //Serial.write(c);
       if (c == '\n') {
         if (currentLine.length() == 0) {
-          HTTP::dispatch(client, path);
+          HTTP::dispatch(client, method, path);
           return;
         }
         // header line
-        if (currentLine.startsWith("GET ")) {
-          path = currentLine.substring(4, currentLine.indexOf(' ', 4));
-          //dprintf("GOT %s -> %s", currentLine.c_str(), path.c_str());
+        if (method == "") {
+          int i = currentLine.indexOf(' ');
+          method = currentLine.substring(0, i);
+          path = currentLine.substring(i+1, currentLine.indexOf(' ', i+1));
         }
         currentLine = "";
       } else if (c != '\r') {

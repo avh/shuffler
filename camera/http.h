@@ -9,11 +9,12 @@ class HTTP
 {
   public:
     WiFiClient &client;
+    String &method;
     String &path;
     int state = 0;
 
   public:
-    HTTP(WiFiClient &client, String &path);
+    HTTP(WiFiClient &client, String &method, String &path);
 
     void begin(int code, const char *str);
     void printf(const char *fmt, ...);
@@ -22,6 +23,6 @@ class HTTP
 
 public:
     static void add(const char *prefix, void (*handler)(HTTP &));
-    static void dispatch(WiFiClient &client, String &path);
+    static void dispatch(WiFiClient &client, String &method, String &path);
     static void handle(WiFiClient &client);
 };

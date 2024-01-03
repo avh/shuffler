@@ -11,11 +11,12 @@ unsigned long flash_on = 0;
 
 int last_frame_nr = 0;
 int last_card_nr = 0;
-extern int frame_nr;
-extern unsigned char *frame_data;
+extern unsigned short *frame_data;
 extern size_t frame_size;
+extern int frame_nr;
 extern int frame_width;
 extern int frame_height;
+extern int frame_stride;
 
 unsigned char *cardsuit_data = NULL;
 int cardsuit_stride = 0;
@@ -45,8 +46,8 @@ void send_frame_png(HTTP& http)
 {
   int pnglen = 3*frame_width*frame_height;
   auto pngbuf = std::shared_ptr<uint8_t[]>(new uint8_t[pnglen]);
-  int content_length = png_encode_565(pngbuf.get(), pnglen, (unsigned short *)frame_data, frame_width, frame_height, frame_width);
-  if (content_length >= 0) {
+  int content_length = png_encode_565(pngbuf.get(), pnglen, frame_data, frame_width, frame_height, frame_stride);
+  if (content_length > 0) {
     http.begin(200, "File Follows");
     http.printf("Content-Length: %d\n", content_length);
     http.printf("Content-Type: image/png\n");
@@ -58,24 +59,6 @@ void send_frame_png(HTTP& http)
   }
 }
 
-void send_frame(HTTP &http) 
-{
-  struct {
-    unsigned short frame_nr;
-    unsigned short width;
-    unsigned short height;
-  } hdr = {
-    frame_nr, frame_width, frame_height
-  };
-
-  http.begin(200, "OK");
-  http.printf("Content-type: application/octet-stream\n");
-  http.printf("Content-Length: %d\n", sizeof(hdr) + frame_size);
-  http.end();
-  http.write((unsigned char *)&hdr, sizeof(hdr));
-  http.write(frame_data, frame_size);
-}
-
 void handle_frame(HTTP &http)
 {
   if (frame_nr == last_frame_nr) {
@@ -83,11 +66,11 @@ void handle_frame(HTTP &http)
     http.end();
   } else {
     last_frame_nr = frame_nr;
-    send_frame(http);
+    send_frame_png(http);
   }
 }
 
-void send_cardsuit(HTTP &http) 
+void send_cardsuit_png(HTTP &http) 
 {
   if (cardsuit_data == NULL) {
     http.begin(404, "No Data Allocated");
@@ -95,20 +78,20 @@ void send_cardsuit(HTTP &http)
     return;
   }
 
-  struct {
-    unsigned short frame_nr;
-    unsigned short width;
-    unsigned short height;
-  } hdr = {
-    frame_nr, CARDSUIT_WIDTH*14, CARDSUIT_HEIGHT*4
-  };
-
-  http.begin(200, "OK");
-  http.printf("Content-type: application/octet-stream\n");
-  http.printf("Content-Length: %d\n", sizeof(hdr) + cardsuit_size);
-  http.end();
-  http.write((unsigned char *)&hdr, sizeof(hdr));
-  http.write(cardsuit_data, cardsuit_size);
+  int pnglen = CARDSUIT_WIDTH*CARDSUIT_NCOLS*CARDSUIT_HEIGHT*CARDSUIT_NROWS;
+  auto pngbuf = std::shared_ptr<uint8_t[]>(new uint8_t[pnglen]);
+  int content_length = png_encode_gray(pngbuf.get(), pnglen, cardsuit_data, 
+                          CARDSUIT_WIDTH*CARDSUIT_NCOLS, CARDSUIT_HEIGHT*CARDSUIT_NROWS, CARDSUIT_WIDTH*CARDSUIT_NCOLS);
+  if (content_length > 0) {
+    http.begin(200, "File Follows");
+    http.printf("Content-Length: %d\n", content_length);
+    http.printf("Content-Type: image/png\n");
+    http.end();
+    http.write(pngbuf.get(), content_length);
+  } else {
+    http.begin(404, "PNG failed");
+    http.end();
+  }
 }
 
 void handle_cardsuit(HTTP& http)
@@ -118,7 +101,7 @@ void handle_cardsuit(HTTP& http)
     http.end();
   } else {
     last_card_nr = frame_nr;
-    send_cardsuit(http);
+    send_cardsuit_png(http);
   }
 }
 
@@ -128,7 +111,8 @@ void handle_snapshot(HTTP &http)
     digitalWrite(LIGHT_PIN, HIGH);
     delay(100);
   }
-  capture_frame();
+  //capture_frame();
+  //delay(100);
   send_frame_png(http);
 }
 
@@ -246,9 +230,9 @@ void setup() {
     wifi_init("Vliegveld", "AB12CD34EF56G");
     HTTP::add("/capture", handle_capture);
     HTTP::add("/snapshot.png", handle_snapshot);
-    HTTP::add("/frame", handle_frame);
+    HTTP::add("/frame.png", handle_frame);
     HTTP::add("/eject", handle_eject);
-    HTTP::add("/cardsuit", handle_cardsuit);
+    HTTP::add("/cardsuit.png", handle_cardsuit);
     HTTP::add("/calibrate", handle_calibrate);
   }
 

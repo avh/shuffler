@@ -7,11 +7,12 @@ static FrameBuffer fb;
 static GC2145 galaxyCore;
 static Camera cam(galaxyCore);
 
-unsigned char *frame_data = NULL;
+unsigned short *frame_data = NULL;
 int frame_nr = 0;
 size_t frame_size = 0;
 int frame_width = 0;
 int frame_height = 0;
+int frame_stride = 0;
 
 void capture_init()
 {
@@ -28,8 +29,19 @@ int capture_frame()
   if (result != 0) {
     return result;
   }
-  frame_data = fb.getBuffer();
+  frame_data = (unsigned short *)fb.getBuffer();
   frame_size = cam.frameSize();
+  frame_stride = frame_width;
   frame_nr = frame_nr + 1;
+
+  // convert to correct endian
+  unsigned short *ptr = (unsigned short *)frame_data;
+  for (int r = 0 ; r < frame_height ; r++, ptr += frame_stride) {
+    unsigned short *p = ptr;
+    for (int c = 0 ; c < frame_width ; c++, p++) {
+      int v = *p;
+      *p = ((v & 0xFF00)>>8) | ((v & 0x00FF) << 8);
+    }
+  }
   return 0;
 }

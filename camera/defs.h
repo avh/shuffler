@@ -31,3 +31,7 @@
 #define r565(v)     ((v) & 0x00F8)
 #define g565(v)     ((((v) & 0x0007) << 5) | (((v) & 0xE000) >> 11))
 #define b565(v)     (((v) & 0x1F00) >> 5)
+
+#define r565(v)     (((v) & 0xF800) >> 8)
+#define g565(v)     (((v) & 0x07E0) >> 3)
+#define b565(v)     (((v) & 0x001F) << 3)
