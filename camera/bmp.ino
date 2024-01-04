@@ -51,6 +51,7 @@ int bmp_load(const char *fname, Image &img)
 
 void bmp_save(const char *fname, Image &img)
 {
+  int ms = millis();
   int filesize = bmp_file_size(img);
   unsigned char bmpfileheader[14] = {'B','M', 0,0,0,0, 0,0, 0,0, 54,0,0,0};
   unsigned char bmpinfoheader[40] = {40,0,0,0, 0,0,0,0, 0,0,0,0, 1,0, 8,0};
@@ -92,6 +93,7 @@ void bmp_save(const char *fname, Image &img)
     }
     fclose(fp);
   }
+  dprintf("saved %s in %dms", fname, millis() - ms);
 }
 
 void bmp_http_write(HTTP &http, Image &img)

@@ -64,6 +64,7 @@ void handle_list(HTTP &http)
 void flash_init() 
 {
   user_fs.mount(&user_data);
+  mkdir("/user/www", 0666);
   HTTP::add("/list", handle_list);
 }
 

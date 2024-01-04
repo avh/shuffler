@@ -18,8 +18,41 @@ int last_card_nr = 0;
 
 Image tmp;
 Image cardsuit;
+Image card_master;
+Image suit_master;
 int cardsuit_row = 0;
 int cardsuit_col = 0;
+
+int card_match(Image &card, Image &suit)
+{
+  if (card_master.data == NULL || suit_master.data == NULL) {
+    return CARD_MATCH_NONE;
+  }
+  int c = card_master.match(card);
+  if (c >= 0) {
+    int s = suit_master.match(suit);
+    if (c == 13 || s == 4) {
+      return CARD_MATCH_EMPTY;
+    }
+    return s * 13 + c;
+  }
+  return CARD_MATCH_NONE;
+}
+
+const char *card_name(int c)
+{
+  if (c <= CARD_MATCH_NONE) {
+    return "NONE";
+  }
+  if (c >= CARD_MATCH_EMPTY) {
+    return "EMPTY";
+  }
+  static char *s_name[] = {"Clubs", "Diamonds", "Hearts", "Spades"};
+  static char *c_name[] = {"2", "3", "4", "5", "6", "7", "8", "9", "10", "Jack", "Queen", "King", "Ace"};
+  static char buf[64];
+  snprintf(buf, sizeof(buf), "%s of %s", c_name[c%13], s_name[c/13]);
+  return buf;
+}
 
 int eject_card()
 {
@@ -97,14 +130,20 @@ void handle_capture(HTTP &http)
   http.printf("captured frame_nr=%d, %dx%d, stride=%d, cardsuit=%d,%d, result=%d\n", 
     frame_nr, frame.width, frame.height, frame.stride, cardsuit_row, cardsuit_col, result);
 
-  if (result == 0 && cardsuit.data != NULL) {
+  if (result == 0) {
     cardsuit.debug("cardsuit");
     Image card, suit;
     if (frame.locate(tmp, card, suit)) {
-      cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
-      cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
+      int c = card_match(card, suit);
+      if (c != CARD_MATCH_NONE) {
+        dprintf("MATCHED: %d = %s", c, card_name(c));
+      }
+
+      if (cardsuit.data != NULL) {
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
+       }
     }
-    dprintf("done");
   }
 }
 
@@ -127,13 +166,13 @@ void handle_eject(HTTP &http)
   }
 }
 
-void handle_calibrate(HTTP &http) 
+void handle_train(HTTP &http) 
 {
   if (cardsuit.data == NULL) {
     cardsuit.init(CARDSUIT_NCOLS * CARDSUIT_WIDTH, CARDSUIT_NROWS * CARDSUIT_HEIGHT);
   }
   if (cardsuit.data == NULL) {
-    http.begin(404, "Could not allocate Calibration Data");
+    http.begin(404, "Could not allocate Training Data");
     http.end();
     return;
   }
@@ -158,7 +197,6 @@ void handle_calibrate(HTTP &http)
       count++;
       Image card, suit;
       if (frame.locate(tmp, card, suit)) {
-        dprintf("CARD %d, %d", cardsuit_row, cardsuit_col);
         cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
         cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
       }
@@ -177,13 +215,122 @@ void handle_calibrate(HTTP &http)
       cardsuit_row = (cardsuit_row + 1) % 4;
     }
   }
-  http.begin(200, "Calibrate OK");
+  http.begin(200, "Train OK");
   http.end();
-  http.printf("calibrate count=%d\n", count);
+  http.printf("training sample count=%d\n", count);
   flash_on = millis();
   frame_nr++;
+
+  if (cardsuit_row == 3 && cardsuit_col == 13) {
+    card_master.init(CARD_WIDTH * 14, CARD_HEIGHT);
+    suit_master.init(SUIT_WIDTH * 5, SUIT_HEIGHT);
+    if (card_master.data == NULL || suit_master.data == NULL) {
+      dprintf("failed to allocate master data");
+    } else {
+      // gather all the card data
+      for (int card = 0 ; card < 13 ; card++) {
+        int off = card*CARDSUIT_WIDTH;
+        for (int r = 0 ; r < CARD_HEIGHT ; r++) {
+          for (int c = 0 ; c < CARD_WIDTH ; c++) {
+            int sum = 0;
+            for (int i = 0 ; i < 4 ; i++) {
+              sum += *cardsuit.addr(off + c, i * CARDSUIT_HEIGHT + r);
+            }
+            *card_master.addr(card*CARD_WIDTH + c, r) = sum/4;
+          }
+        }
+      }
+      card_master.copy(13 * CARD_WIDTH, 0, cardsuit.crop(CARD_WIDTH*13, CARDSUIT_HEIGHT*3, CARD_WIDTH, CARD_HEIGHT));
+
+      // gather all the suit data
+      for (int suit = 0 ; suit < 4 ; suit++) {
+        int off = suit * CARDSUIT_HEIGHT + CARD_HEIGHT + 2;
+        for (int r = 0 ; r < SUIT_HEIGHT ; r++) {
+          for (int c = 0 ; c < SUIT_WIDTH ; c++) {
+            int sum = 0;
+            for (int i = 0 ; i < 13 ; i++) {
+              sum += *cardsuit.addr(c + i * SUIT_WIDTH, off + r);
+            }
+            *suit_master.addr(suit*SUIT_WIDTH + c, r) = sum/13;
+          }
+        }
+      }
+      suit_master.copy(4 * SUIT_WIDTH, 0, cardsuit.crop(CARD_WIDTH*13, CARDSUIT_HEIGHT*3 + CARD_HEIGHT + 2, SUIT_WIDTH, SUIT_HEIGHT));
+      bmp_save("/user/www/training.bmp", cardsuit);
+      bmp_save("/user/www/cards.bmp", card_master);
+      bmp_save("/user/www/suits.bmp", suit_master);
+    }
+  } else {
+    dprintf("training data incomplete: %d,%d", cardsuit_row, cardsuit_col);
+  }
 }
 
+void handle_check(HTTP &http) 
+{
+  if (cardsuit.data == NULL) {
+    cardsuit.init(CARDSUIT_NCOLS * CARDSUIT_WIDTH, CARDSUIT_NROWS * CARDSUIT_HEIGHT);
+  }
+  if (cardsuit.data == NULL) {
+    http.begin(404, "Could not allocate Training Data");
+    http.end();
+    return;
+  }
+
+  if (flash_on == 0) {
+    digitalWrite(LIGHT_PIN, HIGH);
+    delay(100);
+  }
+
+  // reset
+  cardsuit_col = 0;
+  cardsuit_row = 0;
+  cardsuit.clear();
+
+  int count = 0;
+  for (int i = 0 ; i < 53 ; i++) {
+    unsigned long ms = millis();
+    // capture
+    int capture_result = capture_frame();
+    dprintf("%3d: capture %dms, result=%d", i, millis() - ms, capture_result);
+    if (capture_result == 0) {
+      count++;
+      Image card, suit;
+      if (frame.locate(tmp, card, suit)) {
+        int c = card_match(card, suit);
+        if (cardsuit_col == 0 && cardsuit_row == 0 && c > CARD_MATCH_NONE && c < CARD_MATCH_EMPTY) {
+          cardsuit_col = c % 13;
+          cardsuit_row = c / 13;
+          dprintf("starting at %s", card_name(c));
+        }
+
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
+
+        dprintf("MATCHED: %d = %s", c, card_name(c));
+        if (c == CARD_MATCH_NONE || (c != cardsuit_row*13 + cardsuit_col)) {
+          dprintf("ABORT");
+          break;
+        }
+      }
+    }
+    ms = millis();
+
+    // eject
+    int eject_result = eject_card();
+    dprintf("%3d: eject %dms, result=%d", i, millis() - ms, eject_result);
+    if (eject_result != EJECT_OK) {
+      break;
+    }
+    cardsuit_col += 1;
+    if ((cardsuit_col == 13 && cardsuit_row < 3) || (cardsuit_col > 13)) {
+      cardsuit_col = 0;
+      cardsuit_row = (cardsuit_row + 1) % 4;
+    }
+  }
+  if (cardsuit_row == 3 && cardsuit_col == 13) {
+    dprintf("all sorted");
+  }
+}
 void setup() {
   util_init("camera");
   flash_init();
@@ -199,11 +346,15 @@ void setup() {
     HTTP::add("/frame.bmp", handle_frame_bmp);
     HTTP::add("/eject", handle_eject);
     HTTP::add("/cardsuit.bmp", handle_cardsuit_bmp);
-    HTTP::add("/calibrate", handle_calibrate);
-  }
+    HTTP::add("/train", handle_train);
+    HTTP::add("/check", handle_check);
+ }
 
-  cardsuit.init(CARDSUIT_NCOLS * CARDSUIT_WIDTH, CARDSUIT_NROWS * CARDSUIT_HEIGHT);
-  cardsuit.clear();
+  //cardsuit.init(CARDSUIT_NCOLS * CARDSUIT_WIDTH, CARDSUIT_NROWS * CARDSUIT_HEIGHT);
+  //cardsuit.clear();
+  if (bmp_load("/user/www/cards.bmp", card_master) != 0 || bmp_load("/user/www/suits.bmp", suit_master) != 0) {
+    dprintf("note: failed to load card/suit masters");
+  }
 
   pinMode(LIGHT_PIN, OUTPUT);
   digitalWrite(LIGHT_PIN, LOW);

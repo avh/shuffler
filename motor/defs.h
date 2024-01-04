@@ -33,3 +33,5 @@
 #define SUIT_HEIGHT           25
 #define SUIT_OFFSET           (CARDSUIT_HEIGHT - SUIT_HEIGHT)
 
+#define CARD_MATCH_NONE       -1
+#define CARD_MATCH_EMPTY      (4*13)

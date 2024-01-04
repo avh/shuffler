@@ -4,15 +4,15 @@
 #include "http.h"
 
 static struct {
-  const char *prefix;
+  const char *path;
   void (*handler)(HTTP &);
 } handlers[MAX_HANDLERS];
 static int nhandlers = 0;
 
-void HTTP::add(const char *prefix, void (*handler)(HTTP &))
+void HTTP::add(const char *path, void (*handler)(HTTP &))
 {
   if (nhandlers < MAX_HANDLERS) {
-    handlers[nhandlers].prefix = prefix;
+    handlers[nhandlers].path = path;
     handlers[nhandlers].handler = handler;
     nhandlers++;
   } else {
@@ -125,7 +125,7 @@ void HTTP::dispatch(WiFiClient &client, String &method, String &path)
   HTTP http(client, method, path);
 
   for (int i = 0 ; i < nhandlers ; i++) {
-    if (path.startsWith(handlers[i].prefix)) {
+    if (path.equals(handlers[i].path)) {
       handlers[i].handler(http);
     }
   }

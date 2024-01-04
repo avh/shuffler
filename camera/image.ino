@@ -25,7 +25,7 @@ bool Image::init(int width, int height)
     if (this->width == width && this->height == height) {
       return true;
     }
-    free(data);
+    ::free(data);
   }
   this->data = (pixel *)malloc(width * height * sizeof(pixel));
   if (data == NULL) {
@@ -48,14 +48,14 @@ Image Image::crop(int x, int y, int w, int h)
   return Image(addr(x, y), w, h, stride);
 }
 
-void Image::copy(int x, int y, Image &src)
+void Image::copy(int x, int y, const Image &src)
 {
   x = max(0, min(x, width));
   y = max(0, min(y, height));
   int w = min(src.width, width - x);
   int h = min(src.height, height - y);
 
-  pixel *sp = src.data;
+  const pixel *sp = src.data;
   pixel *dp = addr(x, y);
   for (int r = 0 ; r < h ; r++, sp += src.stride, dp += stride) {
     bcopy(sp, dp, w);
@@ -120,8 +120,8 @@ bool Image::locate(Image &tmp, Image &card, Image &suit)
 
   // determine vertical location
   int ycard = tmp.vlocate(4, 25);
-  int ysuit = tmp.vlocate(ycard + SUIT_OFFSET - 2, ycard + SUIT_OFFSET + 10);
-  dprintf("locate X=%d, YC=%d, YS=%d", x, ycard, ysuit);
+  int ysuit = tmp.vlocate(ycard + SUIT_OFFSET - 1, ycard + SUIT_OFFSET + 10);
+  //dprintf("locate X=%d, YC=%d, YS=%d", x, ycard, ysuit);
   card = tmp.crop(0, ycard, CARD_WIDTH, CARD_HEIGHT);
   suit = tmp.crop(0, ysuit, SUIT_WIDTH, SUIT_HEIGHT);
   return true;
@@ -139,19 +139,48 @@ int Image::vlocate(int ymin, int ymax)
       pmin = min(pmin, *src);
       pmax = max(pmax, *src);
     }
-    if (pmax - pmin > 20) {
+    if (pmax - pmin > 60) {
       return y;
     }
   }
   return ymin;
 }
 
-Image::~Image()
+int Image::match(const Image &img)
+{
+  int n = width / img.width;
+  int bestd = 999999;
+  int bestm = -1;
+  for (int i = 0 ; i < n ; i++) {
+    int dist = 0;
+    for (int r = 0 ; r < img.height ; r++) {
+      const pixel *p1 = addr(i*img.width, r);
+      const pixel *p2 = img.addr(0, r);
+      for (int c = 0 ; c < img.width ; c++, p1++, p2++) {
+        dist += abs(*p1 - *p2);
+      }
+    }
+    //dprintf("match %d = %d", i, dist);
+    if (bestd > dist) {
+      bestd = dist;
+      bestm = i;
+    }
+  }
+  //dprintf("bestm=%d, bestd=%d", bestm, bestd);
+  return bestm;
+}
+
+void Image::free()
 {
   if (owned) {
-    free(data);
+    ::free(data);
     data = NULL;
   }
+}
+
+Image::~Image()
+{
+  Image::free();
 }
 
 void image_init()

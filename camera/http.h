@@ -22,7 +22,7 @@ class HTTP
     int write(unsigned char *buf, int len);
 
 public:
-    static void add(const char *prefix, void (*handler)(HTTP &));
+    static void add(const char *path, void (*handler)(HTTP &));
     static void dispatch(WiFiClient &client, String &method, String &path);
     static void handle(WiFiClient &client);
 };
