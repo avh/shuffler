@@ -39,22 +39,13 @@ int eject_card()
   }
 }
 
-void send_frame_png(HTTP& http)
+void handle_frame_bmp(HTTP& http)
 {
-  int pnglen = frame.width * frame.height;
-  auto pngbuf = std::shared_ptr<uint8_t[]>(new uint8_t[pnglen]);
-  int content_length = png_encode(pngbuf.get(), pnglen, frame);
-  if (content_length > 0) {
-    http.begin(200, "File Follows");
-    http.printf("Content-Length: %d\n", content_length);
-    http.printf("Content-Type: image/png\n");
-    http.end();
-    http.write(pngbuf.get(), content_length);
-  } else {
-    http.begin(404, "PNG failed");
-    http.end();
-    dprintf("PNG ERROR = %d", content_length);
-  }
+  http.begin(200, "File Follows");
+  http.printf("Content-Length: %d\n", bmp_file_size(frame));
+  http.printf("Content-Type: image/bmp\n");
+  http.end();
+  bmp_http_write(http, frame);
 }
 
 void handle_frame(HTTP &http)
@@ -64,31 +55,7 @@ void handle_frame(HTTP &http)
     http.end();
   } else {
     last_frame_nr = frame_nr;
-    send_frame_png(http);
-  }
-}
-
-void send_cardsuit_png(HTTP &http) 
-{
-  if (cardsuit.data == NULL) {
-    http.begin(404, "No Data Allocated");
-    http.end();
-    return;
-  }
-
-  int pnglen = cardsuit.width * cardsuit.height;
-  auto pngbuf = std::shared_ptr<uint8_t[]>(new uint8_t[pnglen]);
-  int content_length = png_encode(pngbuf.get(), pnglen, cardsuit);
-  if (content_length > 0) {
-    http.begin(200, "File Follows");
-    http.printf("Content-Length: %d\n", content_length);
-    http.printf("Content-Type: image/png\n");
-    http.end();
-    http.write(pngbuf.get(), content_length);
-  } else {
-    http.begin(404, "PNG failed");
-    http.end();
-    dprintf("PNG ERROR = %d", content_length);
+    handle_frame_bmp(http);
   }
 }
 
@@ -101,10 +68,11 @@ void handle_cardsuit_bmp(HTTP &http)
   }
   http.begin(200, "File Follows");
   http.printf("Content-Type: image/bmp\n");
-  http.printf("Content-Length: %d\n", bmp_content_length(cardsuit));
+  http.printf("Content-Length: %d\n", bmp_file_size(cardsuit));
   http.end();
   bmp_http_write(http, cardsuit);
 }
+
 void handle_cardsuit(HTTP& http)
 {
   if (false && frame_nr == last_card_nr) {
@@ -112,19 +80,8 @@ void handle_cardsuit(HTTP& http)
     http.end();
   } else {
     last_card_nr = frame_nr;
-    send_cardsuit_png(http);
+    handle_cardsuit_bmp(http);
   }
-}
-
-void handle_snapshot(HTTP &http)
-{
-  if (flash_on == 0) {
-    digitalWrite(LIGHT_PIN, HIGH);
-    delay(100);
-  }
-  //capture_frame();
-  //delay(100);
-  send_frame_png(http);
 }
 
 void handle_capture(HTTP &http) 
@@ -239,10 +196,8 @@ void setup() {
   if (true) {
     wifi_init("Vliegveld", "AB12CD34EF56G");
     HTTP::add("/capture", handle_capture);
-    HTTP::add("/snapshot.png", handle_snapshot);
-    HTTP::add("/frame.png", handle_frame);
+    HTTP::add("/frame.bmp", handle_frame_bmp);
     HTTP::add("/eject", handle_eject);
-    HTTP::add("/cardsuit.png", handle_cardsuit);
     HTTP::add("/cardsuit.bmp", handle_cardsuit_bmp);
     HTTP::add("/calibrate", handle_calibrate);
   }
