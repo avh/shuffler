@@ -43,3 +43,6 @@ int png_encode(unsigned char *buf, int buflen, Image &src)
   }
   return rc == PNG_SUCCESS ? content_length : -rc;
 }
+
+
+

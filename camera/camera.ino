@@ -92,20 +92,18 @@ void send_cardsuit_png(HTTP &http)
   }
 }
 
-void handle_cardsuit_raw(HTTP &http) 
+void handle_cardsuit_bmp(HTTP &http) 
 {
   if (cardsuit.data == NULL) {
     http.begin(404, "No Data Allocated");
     http.end();
     return;
   }
-  cardsuit.debug("sending cardsuit raw");
-  int n = cardsuit.width * cardsuit.height;
   http.begin(200, "File Follows");
-  http.printf("Content-Length: %d\n", n);
-  http.printf("Content-Type: image/png\n");
+  http.printf("Content-Type: image/bmp\n");
+  http.printf("Content-Length: %d\n", bmp_content_length(cardsuit));
   http.end();
-  http.write(cardsuit.data, n);
+  bmp_http_write(http, cardsuit);
 }
 void handle_cardsuit(HTTP& http)
 {
@@ -245,7 +243,7 @@ void setup() {
     HTTP::add("/frame.png", handle_frame);
     HTTP::add("/eject", handle_eject);
     HTTP::add("/cardsuit.png", handle_cardsuit);
-    HTTP::add("/cardsuit.raw", handle_cardsuit_raw);
+    HTTP::add("/cardsuit.bmp", handle_cardsuit_bmp);
     HTTP::add("/calibrate", handle_calibrate);
   }
 

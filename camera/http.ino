@@ -63,7 +63,7 @@ int HTTP::write(unsigned char *buf, int len)
       return len;
   }
   for (int off = 0 ; off < len ; ) {
-    int n = client.write(buf + off, min(1024, len - off));
+    int n = client.write(buf + off, min(10*1024, len - off));
     if (n < 0) {
       state = 4;
       return off;

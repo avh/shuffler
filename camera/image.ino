@@ -28,6 +28,9 @@ bool Image::init(int width, int height)
     free(data);
   }
   this->data = (pixel *)malloc(width * height * sizeof(pixel));
+  if (data == NULL) {
+    dprintf("WARNING: failed to allocate %d bytes for %dx%d image", width * height * sizeof(pixel), width, height);
+  }
   this->width = width;
   this->height = height;
   this->stride = width;
