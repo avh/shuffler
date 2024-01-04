@@ -1,26 +1,43 @@
 // (c)2024, Arthur van Hoff, Artfahrt Inc.
 //
 #include <camera.h>
-#include "gc2145.h"
+#include <gc2145.h>
+#include "image.h"
+
+Image frame;
+int frame_nr = 0;;
 
 static FrameBuffer fb;
 static GC2145 galaxyCore;
 static Camera cam(galaxyCore);
 
-unsigned short *frame_data = NULL;
-int frame_nr = 0;
-size_t frame_size = 0;
-int frame_width = 0;
-int frame_height = 0;
-int frame_stride = 0;
+#define r565(v)     ((v) & 0x00F8)
+#define g565(v)     ((((v) & 0x0007) << 5) | (((v) & 0xE000) >> 11))
+#define b565(v)     (((v) & 0x1F00) >> 5)
+
+#define convert565(v) (b565(v) + g565(v))
+
+// unpack 565, convert from little endian to grayscale, rotate, scale down
+static void unpack_565(unsigned short *src, int src_stride, Image &dst)
+{
+  pixel *dstp = dst.data;
+  for (int c = 0 ; c < dst.width ; c++, src += 2*src_stride, dstp += 1) {
+    unsigned short *sp = src;
+    unsigned char *dp = dstp;
+    for (int r = 0 ; r < dst.height ; r++, sp += 2, dp += dst.stride) {
+      *dp = (unsigned char)(((convert565(sp[0]) + convert565(sp[1]) + convert565(sp[src_stride+0]) + convert565(sp[src_stride+1])) >> 3) & 0xFF);
+    }
+  }
+}
 
 void capture_init()
 {
   if (!cam.begin(CAMERA_R160x120, CAMERA_RGB565, 30)) {
     dprintf("camera failed");
   }
-  frame_width = 160;
-  frame_height = 120;
+  if (!frame.init(120/2, 160/2)) {
+    dprintf("frame alloc failed");
+  }
 }
 
 int capture_frame()
@@ -29,19 +46,7 @@ int capture_frame()
   if (result != 0) {
     return result;
   }
-  frame_data = (unsigned short *)fb.getBuffer();
-  frame_size = cam.frameSize();
-  frame_stride = frame_width;
+  unpack_565((unsigned short *)fb.getBuffer(), 160, frame);
   frame_nr = frame_nr + 1;
-
-  // convert to correct endian
-  unsigned short *ptr = (unsigned short *)frame_data;
-  for (int r = 0 ; r < frame_height ; r++, ptr += frame_stride) {
-    unsigned short *p = ptr;
-    for (int c = 0 ; c < frame_width ; c++, p++) {
-      int v = *p;
-      *p = ((v & 0xFF00)>>8) | ((v & 0x00FF) << 8);
-    }
-  }
   return 0;
 }

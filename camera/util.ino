@@ -52,5 +52,5 @@ void util_init(const char *msg)
 {
   Serial.begin(SERIAL_BAUDRATE);
   for (int tm = millis() ; millis() < tm + 10000 && !Serial ; delay(1));
-  dprintf("== %s ==\n", msg);
+  dprintf("== %s ==", msg);
 }

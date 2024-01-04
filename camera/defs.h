@@ -20,18 +20,16 @@
 #define HOPPER_STUCK      4
 #define CMD_TIMEOUT       999
 
-#define CARDSUIT_COL      18
-#define CARDSUIT_ROW      4
+#define CARDSUIT_COL      8
+#define CARDSUIT_ROW      9
 #define CARDSUIT_NCOLS    14
 #define CARDSUIT_NROWS    4
 
-#define CARDSUIT_WIDTH        25
-#define CARDSUIT_HEIGHT       64
+#define CARDSUIT_WIDTH        22
+#define CARDSUIT_HEIGHT       60
+#define CARD_WIDTH            CARDSUIT_WIDTH
+#define CARD_HEIGHT           30
+#define SUIT_WIDTH            CARDSUIT_WIDTH
+#define SUIT_HEIGHT           25
+#define SUIT_OFFSET           (CARDSUIT_HEIGHT - SUIT_HEIGHT)
 
-#define r565(v)     ((v) & 0x00F8)
-#define g565(v)     ((((v) & 0x0007) << 5) | (((v) & 0xE000) >> 11))
-#define b565(v)     (((v) & 0x1F00) >> 5)
-
-#define r565(v)     (((v) & 0xF800) >> 8)
-#define g565(v)     (((v) & 0x07E0) >> 3)
-#define b565(v)     (((v) & 0x001F) << 3)

@@ -4,25 +4,22 @@
 #include <Wire.h>   
 #include "defs.h"
 #include "http.h"
+#include "image.h"
 
 #define LIGHT_PIN         3
 
 unsigned long flash_on = 0;
 
+extern Image frame;
+extern int frame_nr;
+
 int last_frame_nr = 0;
 int last_card_nr = 0;
-extern unsigned short *frame_data;
-extern size_t frame_size;
-extern int frame_nr;
-extern int frame_width;
-extern int frame_height;
-extern int frame_stride;
 
-unsigned char *cardsuit_data = NULL;
-int cardsuit_stride = 0;
-int cardsuit_size = 0;
+Image tmp;
+Image cardsuit;
 int cardsuit_row = 0;
-int cardsuit_col = 0; 
+int cardsuit_col = 0;
 
 int eject_card()
 {
@@ -44,9 +41,9 @@ int eject_card()
 
 void send_frame_png(HTTP& http)
 {
-  int pnglen = 3*frame_width*frame_height;
+  int pnglen = frame.width * frame.height;
   auto pngbuf = std::shared_ptr<uint8_t[]>(new uint8_t[pnglen]);
-  int content_length = png_encode_565(pngbuf.get(), pnglen, frame_data, frame_width, frame_height, frame_stride);
+  int content_length = png_encode(pngbuf.get(), pnglen, frame);
   if (content_length > 0) {
     http.begin(200, "File Follows");
     http.printf("Content-Length: %d\n", content_length);
@@ -56,6 +53,7 @@ void send_frame_png(HTTP& http)
   } else {
     http.begin(404, "PNG failed");
     http.end();
+    dprintf("PNG ERROR = %d", content_length);
   }
 }
 
@@ -72,16 +70,15 @@ void handle_frame(HTTP &http)
 
 void send_cardsuit_png(HTTP &http) 
 {
-  if (cardsuit_data == NULL) {
+  if (cardsuit.data == NULL) {
     http.begin(404, "No Data Allocated");
     http.end();
     return;
   }
 
-  int pnglen = CARDSUIT_WIDTH*CARDSUIT_NCOLS*CARDSUIT_HEIGHT*CARDSUIT_NROWS;
+  int pnglen = cardsuit.width * cardsuit.height;
   auto pngbuf = std::shared_ptr<uint8_t[]>(new uint8_t[pnglen]);
-  int content_length = png_encode_gray(pngbuf.get(), pnglen, cardsuit_data, 
-                          CARDSUIT_WIDTH*CARDSUIT_NCOLS, CARDSUIT_HEIGHT*CARDSUIT_NROWS, CARDSUIT_WIDTH*CARDSUIT_NCOLS);
+  int content_length = png_encode(pngbuf.get(), pnglen, cardsuit);
   if (content_length > 0) {
     http.begin(200, "File Follows");
     http.printf("Content-Length: %d\n", content_length);
@@ -91,12 +88,13 @@ void send_cardsuit_png(HTTP &http)
   } else {
     http.begin(404, "PNG failed");
     http.end();
+    dprintf("PNG ERROR = %d", content_length);
   }
 }
 
 void handle_cardsuit(HTTP& http)
 {
-  if (frame_nr == last_card_nr) {
+  if (false && frame_nr == last_card_nr) {
     http.begin(404, "No New Card Available");
     http.end();
   } else {
@@ -126,12 +124,17 @@ void handle_capture(HTTP &http)
   int result = capture_frame();
   http.begin(200, "Capture OK");
   http.end();
-  http.printf("captured frame_nr=%d, %dx%d, bytes=%u, cardsuit=%d,%d, result=%d\n", 
-    frame_nr, frame_width, frame_height, frame_size, cardsuit_row, cardsuit_col, result);
+  http.printf("captured frame_nr=%d, %dx%d, stride=%d, cardsuit=%d,%d, result=%d\n", 
+    frame_nr, frame.width, frame.height, frame.stride, cardsuit_row, cardsuit_col, result);
 
-  if (result == 0 && cardsuit_data != NULL) {
-    unsigned char *dst = cardsuit_data + cardsuit_col * CARDSUIT_WIDTH + cardsuit_row * CARDSUIT_HEIGHT * cardsuit_stride;
-    unpack_cardsuit((unsigned short *)frame_data, frame_width, dst, cardsuit_stride);
+  if (result == 0 && cardsuit.data != NULL) {
+    cardsuit.debug("cardsuit");
+    Image card, suit;
+    if (frame.locate(tmp, card, suit)) {
+      cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
+      cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height, suit);
+    }
+    dprintf("done");
   }
 }
 
@@ -156,18 +159,10 @@ void handle_eject(HTTP &http)
 
 void handle_calibrate(HTTP &http) 
 {
-  if (cardsuit_data == NULL) {
-    cardsuit_stride = CARDSUIT_NCOLS * CARDSUIT_WIDTH;
-    cardsuit_size = CARDSUIT_NROWS * CARDSUIT_HEIGHT * cardsuit_stride;
-    cardsuit_data = (unsigned char *)malloc(cardsuit_size);
-    if (cardsuit_data != NULL) {
-      dprintf("allocated %d bytes, no problem", cardsuit_size);
-      bzero(cardsuit_data, cardsuit_size);
-    } else {
-      dprintf("failed to allocate %d bytes, oops", cardsuit_size);
-    }
+  if (cardsuit.data == NULL) {
+    cardsuit.init(CARDSUIT_NCOLS * CARDSUIT_WIDTH, CARDSUIT_NROWS * CARDSUIT_HEIGHT);
   }
-  if (cardsuit_data == NULL) {
+  if (cardsuit.data == NULL) {
     http.begin(404, "Could not allocate Calibration Data");
     http.end();
     return;
@@ -181,7 +176,7 @@ void handle_calibrate(HTTP &http)
   // reset
   cardsuit_col = 0;
   cardsuit_row = 0;
-  bzero(cardsuit_data, cardsuit_size);
+  cardsuit.clear();
 
   int count = 0;
   for (int i = 0 ; i < 53 ; i++) {
@@ -191,8 +186,11 @@ void handle_calibrate(HTTP &http)
     dprintf("%3d: capture %dms, result=%d", i, millis() - ms, capture_result);
     if (capture_result == 0) {
       count++;
-      unsigned char *dst = cardsuit_data + cardsuit_col * CARDSUIT_WIDTH + cardsuit_row * CARDSUIT_HEIGHT * cardsuit_stride;
-      unpack_cardsuit((unsigned short *)frame_data, frame_width, dst, cardsuit_stride);
+      Image card, suit;
+      if (frame.locate(tmp, card, suit)) {
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height, suit);
+      }
     }
     ms = millis();
 
@@ -218,8 +216,6 @@ void handle_calibrate(HTTP &http)
 void setup() {
   util_init("camera");
   flash_init();
-
-  dprintf("=== camera module ===");
   Wire.begin();
   Wire.setTimeout(1000);
   capture_init();
@@ -235,6 +231,9 @@ void setup() {
     HTTP::add("/cardsuit.png", handle_cardsuit);
     HTTP::add("/calibrate", handle_calibrate);
   }
+
+  cardsuit.init(CARDSUIT_NCOLS * CARDSUIT_WIDTH, CARDSUIT_NROWS * CARDSUIT_HEIGHT);
+  cardsuit.clear();
 
   pinMode(LIGHT_PIN, OUTPUT);
   digitalWrite(LIGHT_PIN, LOW);

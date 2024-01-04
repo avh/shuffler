@@ -24,17 +24,18 @@ int png_encode_565(unsigned char *buf, int buflen, unsigned short *src, int widt
   return rc == PNG_SUCCESS ? content_length : -rc;
 }
 
-int png_encode_gray(unsigned char *buf, int buflen, unsigned char *src, int width, int height, int stride)
+int png_encode(unsigned char *buf, int buflen, Image &src)
 {
   int rc = PNG_NO_BUFFER;
   int content_length = -1;
   if (buf != NULL) {
     rc = png.open(buf, buflen);
     if (rc == PNG_SUCCESS) {
-      rc = png.encodeBegin(width, height, PNG_PIXEL_GRAYSCALE, 8, NULL, 3);
+      rc = png.encodeBegin(src.width, src.height, PNG_PIXEL_GRAYSCALE, 8, NULL, 3);
       if (rc == PNG_SUCCESS) {
-        for (int r = 0 ; r < height && rc == PNG_SUCCESS ; r++, src += stride) {
-          rc = png.addLine(src);
+        unsigned char *p = src.data;
+        for (int r = 0 ; r < src.height && rc == PNG_SUCCESS ; r++, p += src.stride) {
+          rc = png.addLine(p);
         }
         content_length = png.close();
       }
