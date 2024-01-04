@@ -92,6 +92,21 @@ void send_cardsuit_png(HTTP &http)
   }
 }
 
+void handle_cardsuit_raw(HTTP &http) 
+{
+  if (cardsuit.data == NULL) {
+    http.begin(404, "No Data Allocated");
+    http.end();
+    return;
+  }
+  cardsuit.debug("sending cardsuit raw");
+  int n = cardsuit.width * cardsuit.height;
+  http.begin(200, "File Follows");
+  http.printf("Content-Length: %d\n", n);
+  http.printf("Content-Type: image/png\n");
+  http.end();
+  http.write(cardsuit.data, n);
+}
 void handle_cardsuit(HTTP& http)
 {
   if (false && frame_nr == last_card_nr) {
@@ -132,7 +147,7 @@ void handle_capture(HTTP &http)
     Image card, suit;
     if (frame.locate(tmp, card, suit)) {
       cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
-      cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height, suit);
+      cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
     }
     dprintf("done");
   }
@@ -188,8 +203,9 @@ void handle_calibrate(HTTP &http)
       count++;
       Image card, suit;
       if (frame.locate(tmp, card, suit)) {
+        dprintf("CARD %d, %d", cardsuit_row, cardsuit_col);
         cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
-        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height, suit);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
       }
     }
     ms = millis();
@@ -229,6 +245,7 @@ void setup() {
     HTTP::add("/frame.png", handle_frame);
     HTTP::add("/eject", handle_eject);
     HTTP::add("/cardsuit.png", handle_cardsuit);
+    HTTP::add("/cardsuit.raw", handle_cardsuit_raw);
     HTTP::add("/calibrate", handle_calibrate);
   }
 

@@ -6,9 +6,13 @@ Image::Image() : data(NULL), width(0), height(0), stride(0), owned(false)
 {
 }
 
+Image::Image(const Image &other) : data(other.data), width(other.width), height(other.height), stride(other.stride), owned(false)
+{
+}
+
 Image::Image(int width, int height) : width(width), height(height), stride(width), owned(true)
 {
-  data = (unsigned char *)malloc(width * height);
+  data = (pixel *)malloc(width * height);
 }
 
 Image::Image(pixel *data, int width, int height, int stride) : data(data), width(width), height(height), stride(stride), owned(false)
@@ -28,24 +32,42 @@ bool Image::init(int width, int height)
   this->height = height;
   this->stride = width;
   this->owned = true;
+  //dprintf("allocated %p -> %dx%d", this->data, this->width, this->height);
   return data != NULL;
 }
 
 Image Image::crop(int x, int y, int w, int h)
 {
-  return Image(data + x + y*stride, w, h, stride);
+  x = max(0, min(x, width));
+  y = max(0, min(y, height));
+  w = min(w, width - x);
+  h = min(h, height - y);
+  return Image(addr(x, y), w, h, stride);
 }
 
 void Image::copy(int x, int y, Image &src)
 {
-  src.debug("copy from");
-  this->debug("copy to");
+  x = max(0, min(x, width));
+  y = max(0, min(y, height));
+  int w = min(src.width, width - x);
+  int h = min(src.height, height - y);
 
   pixel *sp = src.data;
-  pixel *dp = data + x + y*stride;
-  for (int r = 0 ; r < src.height ; r++, sp += src.stride, dp += stride) {
-    bcopy(sp, dp, src.width);
+  pixel *dp = addr(x, y);
+  for (int r = 0 ; r < h ; r++, sp += src.stride, dp += stride) {
+    bcopy(sp, dp, w);
   }
+}
+
+void Image::clear()
+{
+  for (int r = 0 ; r < height ; r++) {
+    memset(data + r*stride, 0, width);
+  }
+}
+void Image::debug(const char *msg)
+{
+  dprintf("%s[%p,%dx%d,%d%s]",msg, data, width, height, stride, owned ? ",owned" : "");
 }
 
 bool Image::locate(Image &tmp, Image &card, Image &suit)
@@ -75,51 +97,50 @@ bool Image::locate(Image &tmp, Image &card, Image &suit)
     }
   }
 
-  // threshold into tmp
+  // adjust brightness per line into tmp
   tmp.init(CARDSUIT_WIDTH, height);
-  for (int r = 0 ; r < height ; r++) {
+  for (int r = 0 ; r < tmp.height ; r++) {
     pixel *src = data + x + r*stride;
     pixel *dst = tmp.data + r*tmp.stride;
-    int scale = src[0];
+    int pmin = src[0];
+    int pmax = pmin;
+    for (int c = 1 ; c < CARDSUIT_WIDTH ; c++) {
+        pmin = min(pmin, src[c]);
+        pmax = max(pmax, src[c]);
+    }
+    int offset = (pmin < pmax - 50) ? pmin : 0;
+    int scale = pmax - offset;
     for (int c = 0 ; c < CARDSUIT_WIDTH ; c++) {
-      dst[c] = min(src[c] * 255 / scale, 255);
+      dst[c] = max(0, min((src[c] - offset) * 255 / scale, 255));
     }
   }
 
-  // determine vertical position, take into account the brightness ramp
-  int besty = 0;
-  int y = 0;
-  for (int r = 4 ; r < 25 ; r ++) {
-    pixel *p1 = tmp.data + r*tmp.stride;
-    pixel *p2 = p1 + tmp.stride;
-    int sum = 0;
-    for (int c = 0 ; c < CARDSUIT_WIDTH ; c++, p1++, p2++) {
-      sum += *p1 - *p2;
-    }
-    if (besty < sum) {
-      besty = sum;
-      y = r;
-    }
-    //dprintf("%d: %4d, %4d", r, s1, sum);
-  }
-  dprintf("locate X=%d, Y=%d", x, y);
-  card = tmp.crop(0, y, CARD_WIDTH, CARD_HEIGHT);
-  suit = tmp.crop(0, y+SUIT_OFFSET, SUIT_WIDTH, SUIT_HEIGHT);
-  tmp.debug("tmp");
-  card.debug("card");
-  suit.debug("suit");
+  // determine vertical location
+  int ycard = tmp.vlocate(4, 25);
+  int ysuit = tmp.vlocate(ycard + SUIT_OFFSET - 2, ycard + SUIT_OFFSET + 10);
+  dprintf("locate X=%d, YC=%d, YS=%d", x, ycard, ysuit);
+  card = tmp.crop(0, ycard, CARD_WIDTH, CARD_HEIGHT);
+  suit = tmp.crop(0, ysuit, SUIT_WIDTH, SUIT_HEIGHT);
   return true;
 }
 
-void Image::clear()
+int Image::vlocate(int ymin, int ymax)
 {
-  for (int r = 0 ; r < height ; r++) {
-    memset(data + r*stride, 0, width);
+  ymin = max(0, min(ymin, height));
+  ymax = max(0, min(ymax, height));
+  for (int y = ymin ; y < ymax ; y++) {
+    pixel *src = addr(0, y);
+    int pmin = *src++;
+    int pmax = pmin;
+    for (int x = 1 ; x < width ; x++, src++) {
+      pmin = min(pmin, *src);
+      pmax = max(pmax, *src);
+    }
+    if (pmax - pmin > 20) {
+      return y;
+    }
   }
-}
-void Image::debug(const char *msg)
-{
-  dprintf("%s[%p,%dx%d,%d%s]",msg, data, width, height, stride, owned ? ",owned" : "");
+  return ymin;
 }
 
 Image::~Image()
