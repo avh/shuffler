@@ -105,14 +105,13 @@ bool Image::locate(Image &tmp, Image &card, Image &suit)
   for (int r = 0 ; r < tmp.height ; r++) {
     pixel *src = data + x + r*stride;
     pixel *dst = tmp.data + r*tmp.stride;
-    int pmin = src[0];
-    int pmax = pmin;
-    for (int c = 1 ; c < CARDSUIT_WIDTH ; c++) {
-        pmin = min(pmin, src[c]);
-        pmax = max(pmax, src[c]);
-    }
-    int offset = (pmin < pmax - 50) ? pmin : 0;
-    int scale = pmax - offset;
+    //int pmax = 250 - (r * 17)/10;
+    //int pmin = 150 - (r * 125)/100;
+    //int offset = pmin;
+    //int scale = pmax - offset;
+    int offset = 0;
+    int scale = 255;
+    //dprintf("%d: pmin=%d, pmax=%d, offset=%d, scale=%d", r, pmin, pmax, offset, scale);
     for (int c = 0 ; c < CARDSUIT_WIDTH ; c++) {
       dst[c] = max(0, min((src[c] - offset) * 255 / scale, 255));
     }
@@ -149,7 +148,7 @@ int Image::vlocate(int ymin, int ymax)
 int Image::match(const Image &img)
 {
   int n = width / img.width;
-  int bestd = 999999;
+  int bestd = 999999999;
   int bestm = -1;
   for (int i = 0 ; i < n ; i++) {
     int dist = 0;
@@ -157,16 +156,17 @@ int Image::match(const Image &img)
       const pixel *p1 = addr(i*img.width, r);
       const pixel *p2 = img.addr(0, r);
       for (int c = 0 ; c < img.width ; c++, p1++, p2++) {
-        dist += abs(*p1 - *p2);
+        int d = *p1 - *p2;
+        dist += d*d;
       }
     }
-    //dprintf("match %d = %d", i, dist);
+    dprintf("match %d = %d", i, dist);
     if (bestd > dist) {
       bestd = dist;
       bestm = i;
     }
   }
-  //dprintf("bestm=%d, bestd=%d", bestm, bestd);
+  dprintf("bestm=%d, bestd=%d", bestm, bestd);
   return bestm;
 }
 

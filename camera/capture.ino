@@ -4,12 +4,16 @@
 #include <gc2145.h>
 #include "image.h"
 
+#define LIGHT_PIN         3
+
 Image frame;
 int frame_nr = 0;;
 
 static FrameBuffer fb;
 static GC2145 galaxyCore;
 static Camera cam(galaxyCore);
+static unsigned long captureNextMs = 0;
+static unsigned long lightOffMs = 0;
 
 #define r565(v)     ((v) & 0x00F8)
 #define g565(v)     ((((v) & 0x0007) << 5) | (((v) & 0xE000) >> 11))
@@ -30,6 +34,26 @@ static void unpack_565(unsigned short *src, int src_stride, Image &dst)
   }
 }
 
+int capture_frame()
+{
+  unsigned long now = millis();
+  if (lightOffMs == 0) {
+    digitalWrite(LIGHT_PIN, HIGH);
+    captureNextMs = now + 500;
+  }
+  lightOffMs = now + 10*1000;
+  if (now < captureNextMs) {
+    delay(captureNextMs - now);
+  }
+  int result = cam.grabFrame(fb, 60);
+  if (result != 0) {
+    return result;
+  }
+  unpack_565((unsigned short *)fb.getBuffer(), 160, frame);
+  frame_nr = frame_nr + 1;
+  captureNextMs = millis() + 33;
+  return 0;
+}
 void capture_init()
 {
   if (!cam.begin(CAMERA_R160x120, CAMERA_RGB565, 30)) {
@@ -38,15 +62,16 @@ void capture_init()
   if (!frame.init(120/2, 160/2)) {
     dprintf("frame alloc failed");
   }
+  captureNextMs = millis() + 33;
+
+  pinMode(LIGHT_PIN, OUTPUT);
+  digitalWrite(LIGHT_PIN, LOW);
 }
 
-int capture_frame()
+void capture_check()
 {
-  int result = cam.grabFrame(fb, 60);
-  if (result != 0) {
-    return result;
+  if (lightOffMs != 0 && millis() > lightOffMs) {
+    digitalWrite(LIGHT_PIN, LOW);
+    lightOffMs = 0;
   }
-  unpack_565((unsigned short *)fb.getBuffer(), 160, frame);
-  frame_nr = frame_nr + 1;
-  return 0;
 }

@@ -6,10 +6,6 @@
 #include "http.h"
 #include "image.h"
 
-#define LIGHT_PIN         3
-
-unsigned long flash_on = 0;
-
 extern Image frame;
 extern int frame_nr;
 
@@ -17,6 +13,8 @@ int last_frame_nr = 0;
 int last_card_nr = 0;
 
 Image tmp;
+Image last_card;
+Image last_suit;
 Image cardsuit;
 Image card_master;
 Image suit_master;
@@ -54,6 +52,35 @@ const char *card_name(int c)
   return buf;
 }
 
+void handle_bmp(HTTP& http, Image &img, const char *msg = "File Follows")
+{
+  if (img.data == NULL) {
+    http.begin(404, "Not Allocated");
+    return;
+  }
+  http.begin(200, msg);
+  http.printf("Content-Length: %d\n", bmp_file_size(img));
+  http.printf("Content-Type: image/bmp\n");
+  http.end();
+  bmp_http_write(http, img);
+}
+void handle_frame_bmp(HTTP& http)
+{
+  handle_bmp(http, frame, "Frame Follows");
+}
+void handle_card_bmp(HTTP& http)
+{
+  handle_bmp(http, last_card, "Card Follows");
+}
+void handle_suit_bmp(HTTP& http)
+{
+  handle_bmp(http, last_suit, "Suit Follows");
+}
+void handle_cardsuit_bmp(HTTP& http)
+{
+  handle_bmp(http, cardsuit, "CardSuit Follows");
+}
+
 int eject_card()
 {
   Wire.beginTransmission(MOTOR_ADDR);
@@ -72,43 +99,9 @@ int eject_card()
   }
 }
 
-void handle_frame_bmp(HTTP& http)
-{
-  http.begin(200, "File Follows");
-  http.printf("Content-Length: %d\n", bmp_file_size(frame));
-  http.printf("Content-Type: image/bmp\n");
-  http.end();
-  bmp_http_write(http, frame);
-}
-
-void handle_frame(HTTP &http)
-{
-  if (frame_nr == last_frame_nr) {
-    http.begin(404, "No New Frame Available");
-    http.end();
-  } else {
-    last_frame_nr = frame_nr;
-    handle_frame_bmp(http);
-  }
-}
-
-void handle_cardsuit_bmp(HTTP &http) 
-{
-  if (cardsuit.data == NULL) {
-    http.begin(404, "No Data Allocated");
-    http.end();
-    return;
-  }
-  http.begin(200, "File Follows");
-  http.printf("Content-Type: image/bmp\n");
-  http.printf("Content-Length: %d\n", bmp_file_size(cardsuit));
-  http.end();
-  bmp_http_write(http, cardsuit);
-}
-
 void handle_cardsuit(HTTP& http)
 {
-  if (false && frame_nr == last_card_nr) {
+  if (frame_nr == last_card_nr) {
     http.begin(404, "No New Card Available");
     http.end();
   } else {
@@ -119,11 +112,6 @@ void handle_cardsuit(HTTP& http)
 
 void handle_capture(HTTP &http) 
 {
-  if (flash_on == 0) {
-    digitalWrite(LIGHT_PIN, HIGH);
-    delay(100);
-  }
-  flash_on = millis();
   int result = capture_frame();
   http.begin(200, "Capture OK");
   http.end();
@@ -132,16 +120,15 @@ void handle_capture(HTTP &http)
 
   if (result == 0) {
     cardsuit.debug("cardsuit");
-    Image card, suit;
-    if (frame.locate(tmp, card, suit)) {
-      int c = card_match(card, suit);
+    if (frame.locate(tmp, last_card, last_suit)) {
+      int c = card_match(last_card, last_suit);
       if (c != CARD_MATCH_NONE) {
         dprintf("MATCHED: %d = %s", c, card_name(c));
       }
 
       if (cardsuit.data != NULL) {
-        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
-        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, last_card);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + CARD_HEIGHT + 2, last_suit);
        }
     }
   }
@@ -177,11 +164,6 @@ void handle_train(HTTP &http)
     return;
   }
 
-  if (flash_on == 0) {
-    digitalWrite(LIGHT_PIN, HIGH);
-    delay(100);
-  }
-
   // reset
   cardsuit_col = 0;
   cardsuit_row = 0;
@@ -195,10 +177,9 @@ void handle_train(HTTP &http)
     dprintf("%3d: capture %dms, result=%d", i, millis() - ms, capture_result);
     if (capture_result == 0) {
       count++;
-      Image card, suit;
-      if (frame.locate(tmp, card, suit)) {
-        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
-        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
+      if (frame.locate(tmp, last_card, last_suit)) {
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, last_card);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + CARD_HEIGHT + 2, last_suit);
       }
     }
     ms = millis();
@@ -218,7 +199,6 @@ void handle_train(HTTP &http)
   http.begin(200, "Train OK");
   http.end();
   http.printf("training sample count=%d\n", count);
-  flash_on = millis();
   frame_nr++;
 
   if (cardsuit_row == 3 && cardsuit_col == 13) {
@@ -276,11 +256,6 @@ void handle_check(HTTP &http)
     return;
   }
 
-  if (flash_on == 0) {
-    digitalWrite(LIGHT_PIN, HIGH);
-    delay(100);
-  }
-
   // reset
   cardsuit_col = 0;
   cardsuit_row = 0;
@@ -294,17 +269,16 @@ void handle_check(HTTP &http)
     dprintf("%3d: capture %dms, result=%d", i, millis() - ms, capture_result);
     if (capture_result == 0) {
       count++;
-      Image card, suit;
-      if (frame.locate(tmp, card, suit)) {
-        int c = card_match(card, suit);
+      if (frame.locate(tmp, last_card, last_suit)) {
+        int c = card_match(last_card, last_suit);
         if (cardsuit_col == 0 && cardsuit_row == 0 && c > CARD_MATCH_NONE && c < CARD_MATCH_EMPTY) {
           cardsuit_col = c % 13;
           cardsuit_row = c / 13;
           dprintf("starting at %s", card_name(c));
         }
 
-        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, card);
-        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + card.height + 2, suit);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT, last_card);
+        cardsuit.copy(cardsuit_col * CARDSUIT_WIDTH, cardsuit_row * CARDSUIT_HEIGHT + CARD_HEIGHT + 2, last_suit);
 
         dprintf("MATCHED: %d = %s", c, card_name(c));
         if (c == CARD_MATCH_NONE || (c != cardsuit_row*13 + cardsuit_col)) {
@@ -331,6 +305,7 @@ void handle_check(HTTP &http)
     dprintf("all sorted");
   }
 }
+
 void setup() {
   util_init("camera");
   flash_init();
@@ -343,9 +318,11 @@ void setup() {
   if (true) {
     wifi_init("Vliegveld", "AB12CD34EF56G");
     HTTP::add("/capture", handle_capture);
-    HTTP::add("/frame.bmp", handle_frame_bmp);
     HTTP::add("/eject", handle_eject);
+    HTTP::add("/frame.bmp", handle_frame_bmp);
     HTTP::add("/cardsuit.bmp", handle_cardsuit_bmp);
+    HTTP::add("/card.bmp", handle_card_bmp);
+    HTTP::add("/suit.bmp", handle_suit_bmp);
     HTTP::add("/train", handle_train);
     HTTP::add("/check", handle_check);
  }
@@ -356,20 +333,10 @@ void setup() {
     dprintf("note: failed to load card/suit masters");
   }
 
-  pinMode(LIGHT_PIN, OUTPUT);
-  digitalWrite(LIGHT_PIN, LOW);
+  dprintf("ready...");
 }
 
-int cnt = 0;
-
 void loop() {
-  if (cnt++ == 0) {
-    dprintf("in looop");
-  }
   wifi_check();
-  //flash_check();
-  if (flash_on != 0 && millis() > flash_on + 10*1000) {
-    digitalWrite(LIGHT_PIN, LOW);
-    flash_on = 0;
-  }
+  capture_check();
 }
