@@ -1,11 +1,18 @@
 #include "defs.h"
 
 #define DETECT_PIN        2
-#define MOTOR_PWM_PIN     9
-#define MOTOR_D1_PIN      10
-#define MOTOR_D2_PIN      11
 
-int speed = 255;
+#define MOTOR_PWM_PIN     6
+#define MOTOR_D1_PIN      7
+#define MOTOR_D2_PIN      8
+
+#define FAN_PWM_PIN       9
+#define FAN_D1_PIN        10
+#define FAN_D2_PIN        11
+
+int speed = 100;
+int fanSpeed = 0;
+unsigned long fanOffMs = 0;
 
 enum eject_state {
   WAITING, LOADING, EJECTING, RETRACTING, DONE
@@ -19,11 +26,22 @@ void set_state(int s) {
   state_ms = millis();
 }
 
+void fan_speed(int speed)
+{
+  if (speed != fanSpeed) {
+    digitalWrite(FAN_D1_PIN, speed == 0 ? LOW : LOW);
+    digitalWrite(FAN_D2_PIN, speed == 0 ? LOW : HIGH);
+    analogWrite(FAN_PWM_PIN, speed);
+    add_event("fan", speed);
+    fanSpeed = speed;
+  }
+}
+
 void motor_move(int fwd = 1) 
 {
-  analogWrite(MOTOR_PWM_PIN, speed);
   digitalWrite(MOTOR_D1_PIN, fwd > 0 ? LOW : HIGH);
   digitalWrite(MOTOR_D2_PIN, fwd > 0 ? HIGH : LOW);
+  analogWrite(MOTOR_PWM_PIN, speed);
   add_event("move", fwd);
 }
 
@@ -89,6 +107,12 @@ int retract_card() {
 int eject_card() {
   reset_events();
   add_event("eject_card", 0);
+  if (fanSpeed == 0) {
+    fan_speed(255);
+    delay(500);
+  }
+  fanOffMs = millis() + 2*1000;
+
   set_state(LOADING);
   motor_move(1);
   while (1) {
@@ -105,6 +129,7 @@ int eject_card() {
           set_state(DONE);
           add_event("eject card failed (hopper empty)", HOPPER_EMPTY);
           motor_relax();
+          fan_speed(0);
           return HOPPER_EMPTY;
         }
         break;
@@ -121,6 +146,7 @@ int eject_card() {
         if (card_detected()) {
           add_event("eject card failed (card still detected)", 0);
           motor_relax();
+          fan_speed(0);
           return HOPPER_STUCK;
         }
         add_event("eject card success", 0);
@@ -179,11 +205,25 @@ int count_cards(int delay_ms = 0) {
   }
 }
 
-void init_hopper()
+void hopper_init()
 {
-  pinMode(DETECT_PIN, INPUT_PULLUP);
   pinMode(MOTOR_PWM_PIN, OUTPUT);
   pinMode(MOTOR_D1_PIN, OUTPUT);
   pinMode(MOTOR_D2_PIN, OUTPUT);
+
+  pinMode(FAN_PWM_PIN, OUTPUT);
+  pinMode(FAN_D1_PIN, OUTPUT);
+  pinMode(FAN_D2_PIN, OUTPUT);
+
+
+  pinMode(DETECT_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(DETECT_PIN), card_interrupt, CHANGE);
+}
+
+void hopper_check()
+{
+  if (fanSpeed > 0 && millis() > fanOffMs) {
+    fan_speed(0);
+    fanOffMs = 0;
+  }
 }

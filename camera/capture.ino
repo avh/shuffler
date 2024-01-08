@@ -34,12 +34,18 @@ static void unpack_565(unsigned short *src, int src_stride, Image &dst)
   }
 }
 
+int capture_light_off()
+{
+    digitalWrite(LIGHT_PIN, LOW);
+    lightOffMs = 0;
+}
+
 int capture_frame()
 {
   unsigned long now = millis();
   if (lightOffMs == 0) {
     digitalWrite(LIGHT_PIN, HIGH);
-    captureNextMs = now + 500;
+    captureNextMs = now + 600;
   }
   lightOffMs = now + 10*1000;
   if (now < captureNextMs) {
@@ -71,7 +77,6 @@ void capture_init()
 void capture_check()
 {
   if (lightOffMs != 0 && millis() > lightOffMs) {
-    digitalWrite(LIGHT_PIN, LOW);
-    lightOffMs = 0;
+    capture_light_off();
   }
 }

@@ -15,7 +15,7 @@ void dprintf(char *fmt, ...)
 #define MAX_EVENTS   100
 
 struct event {
-  int tm;
+  unsigned long tm;
   const char *cmd;
   int arg;
 };
@@ -27,7 +27,7 @@ void reset_events()
   nevts = 0;
 }
 
-void add_event(char *cmd, int arg) 
+void add_event(const char *cmd, int arg) 
 {
   if (evts == NULL) {
     evts = (struct event *)malloc(MAX_EVENTS * sizeof(struct event));
@@ -43,7 +43,7 @@ void add_event(char *cmd, int arg)
 void dump_events()
 {
   for (int i = 0 ; i < nevts ; i++) {
-      dprintf("%4d: %4ld %s %d", i, evts[i].tm - evts[0].tm, evts[i].cmd, evts[i].arg);
+      dprintf("%4d: %4lu %s %d", i, evts[i].tm - evts[0].tm, evts[i].cmd, evts[i].arg);
   }
   nevts = 0;
 }

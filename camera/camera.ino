@@ -92,6 +92,9 @@ int eject_card()
     }
     //while (!Wire.available());
     int eject_result = Wire.read();
+    if (eject_result == HOPPER_EMPTY) {
+      capture_light_off();
+    }
     if (eject_result != 0) {
       return eject_result;
     }

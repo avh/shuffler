@@ -24,11 +24,8 @@ void handle_req(int n) {
 }
 
 void setup() {
-  // put your setup code here, to run once:
-  Serial.begin(19200);
-  dprintf("motor module");
-
-  init_hopper();
+  util_init("motor");
+  hopper_init();
 
   Wire.begin(MOTOR_ADDR);
   //Wire.onRequest(handle_req);
@@ -54,4 +51,6 @@ void loop() {
     next_result = result;
     next_cmd = 0;
   }
+
+  hopper_check();
 }
