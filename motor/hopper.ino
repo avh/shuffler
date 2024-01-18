@@ -1,14 +1,16 @@
+// (c)2024, Arthur van Hoff, Artfahrt Inc.
+//
+#include <AccelStepper.h>
 #include "defs.h"
 
-#define DETECT_PIN        2
+#define CARD_PIN        2
+#define DECK_PIN        5
+#define MOTOR_STEP_PIN  6
+#define MOTOR_DIR_PIN   7
+#define MOTOR_ENABLE_PIN 8
+#define FAN_PIN         12
 
-#define MOTOR_PWM_PIN     6
-#define MOTOR_D1_PIN      7
-#define MOTOR_D2_PIN      8
-
-#define FAN_PWM_PIN       9
-#define FAN_D1_PIN        10
-#define FAN_D2_PIN        11
+AccelStepper stepper(1, MOTOR_STEP_PIN, MOTOR_DIR_PIN);
 
 int speed = 100;
 int fanSpeed = 0;
@@ -20,7 +22,8 @@ enum eject_state {
 volatile unsigned long state_ms = 0;
 volatile eject_state state = WAITING;
 
-void set_state(int s) {
+void set_state(int s) 
+{
   add_event("set_state", s);
   state = (eject_state)s;
   state_ms = millis();
@@ -29,50 +32,35 @@ void set_state(int s) {
 void fan_speed(int speed)
 {
   if (speed != fanSpeed) {
-    digitalWrite(FAN_D1_PIN, speed == 0 ? LOW : LOW);
-    digitalWrite(FAN_D2_PIN, speed == 0 ? LOW : HIGH);
-    analogWrite(FAN_PWM_PIN, speed);
-    add_event("fan", speed);
+    digitalWrite(FAN_PIN, speed == 0 ? LOW : HIGH);
     fanSpeed = speed;
+    add_event("fan", speed);
   }
 }
 
-void motor_move(int fwd = 1) 
+int deck_detected()
 {
-  digitalWrite(MOTOR_D1_PIN, fwd > 0 ? LOW : HIGH);
-  digitalWrite(MOTOR_D2_PIN, fwd > 0 ? HIGH : LOW);
-  analogWrite(MOTOR_PWM_PIN, speed);
-  add_event("move", fwd);
+  int v = digitalRead(DECK_PIN) == HIGH;
+  add_event("deck_detected", v);
+  return v;
 }
 
-void motor_brake() 
+int card_detected() 
 {
-  analogWrite(MOTOR_PWM_PIN, 0);
-  digitalWrite(MOTOR_D1_PIN, HIGH);
-  digitalWrite(MOTOR_D2_PIN, HIGH);
-  add_event("brake", state);
-}
-
-void motor_relax() 
-{
-  analogWrite(MOTOR_PWM_PIN, 0);
-  digitalWrite(MOTOR_D1_PIN, LOW);
-  digitalWrite(MOTOR_D2_PIN, LOW);
-  add_event("relax", state);
-}
-
-int card_detected() {
-  int v = digitalRead(DETECT_PIN) == HIGH;
+  int v = digitalRead(CARD_PIN) == HIGH;
   add_event("card_detected", v);
   return v;
 }
 
 void card_interrupt() {
-  if (digitalRead(DETECT_PIN) == HIGH) {
+  if (digitalRead(CARD_PIN) == HIGH) {
    add_event("card_interrupt", state);
     // card detected
     switch (state) {
         case LOADING:
+          //stepper.moveTo(stepper.currentPosition() + 200);
+          stepper.setMaxSpeed(5000);
+          stepper.setAcceleration(10000);
           set_state(EJECTING);
           break;
       }
@@ -81,83 +69,120 @@ void card_interrupt() {
     // no card detected
     switch (state) {
       case EJECTING:
+        stepper.setCurrentPosition(0);
+        stepper.setMaxSpeed(2000);
+        stepper.moveTo(-50);
         set_state(RETRACTING);
-        motor_move(-1);
         break;
     }
   }
+}
+
+void stop_everything()
+{
+    stepper.disableOutputs();
+    stepper.setSpeed(0);
+    fan_speed(0);
+    fanOffMs = 0;
 }
 
 int retract_card() {
   add_event("rectact_card", 0);
-  set_state(RETRACTING);
-  motor_move(-1);
-  while (state != DONE) {
-    unsigned long now = millis();
-    if (now > state_ms + 500 && card_detected()) {
-      set_state(DONE);
-      motor_relax();
-      return 0;
-    }
-    delayMicroseconds(1);
+
+  if (fanSpeed == 0) {
+    fan_speed(1);
+    delay(1000);
   }
-  return 1;
+  stepper.enableOutputs();
+  stepper.setCurrentPosition(0);
+  stepper.setMaxSpeed(2000);
+  stepper.setAcceleration(1000);
+  stepper.moveTo(-500);
+  add_event("dist", stepper.distanceToGo());
+
+  set_state(RETRACTING);
+  while (state == RETRACTING && stepper.distanceToGo() != 0 && millis() < state_ms + 500) {
+    stepper.run();
+  }
+  add_event("dist", stepper.distanceToGo());
+  if (card_detected() == 0) {
+    add_event("retract card success", 1);
+    stepper.setSpeed(0);
+    stepper.disableOutputs();
+    return 1;
+  }
+  add_event("retract card failed", 0);
+  stop_everything();
+  return 0;
 }
+
 
 int eject_card() {
   reset_events();
   add_event("eject_card", 0);
-  if (fanSpeed == 0) {
-    fan_speed(255);
-    delay(500);
+  if (card_detected() && !retract_card()) {
+    stop_everything();
+    return HOPPER_STUCK;
   }
-  fanOffMs = millis() + 2*1000;
+  if (!deck_detected()) {
+    add_event("hopper_empty", 0);
+    stop_everything();
+    return HOPPER_EMPTY;
+  }
+  if (fanSpeed == 0) {
+    fan_speed(1);
+    delay(1000);
+  }
+  fanOffMs = millis() + 5*1000;
 
   set_state(LOADING);
-  motor_move(1);
+  stepper.enableOutputs();
+  stepper.setCurrentPosition(0);
+  stepper.setMaxSpeed(2000);
+  stepper.setAcceleration(1000);
+  stepper.moveTo(1000);
   while (1) {
     unsigned long now = millis();
-    if (now > state_ms + 250) {
+    if (now > state_ms + 500) {
       set_state(DONE);
       add_event("next event timed out", state);
-      motor_relax();
+      stop_everything();
       return HOPPER_STUCK;
     }
     switch (state) {
       case LOADING:
-        if (now > state_ms + 200) {
+        if (now > state_ms + 400) {
           set_state(DONE);
           add_event("eject card failed (hopper empty)", HOPPER_EMPTY);
-          motor_relax();
-          fan_speed(0);
+          stop_everything();
           return HOPPER_EMPTY;
         }
         break;
       case RETRACTING:
-        if (now < state_ms + 100 || card_detected()) {
+        if (now < state_ms + 200 || card_detected()) {
           break;
         }
         add_event("retract abort", now - state_ms);
-        motor_relax();
         set_state(DONE);
         // fall through
       case DONE:
         delay(10);
         if (card_detected()) {
           add_event("eject card failed (card still detected)", 0);
-          motor_relax();
-          fan_speed(0);
+          stop_everything();
           return HOPPER_STUCK;
         }
         add_event("eject card success", 0);
-        motor_relax();
+        stepper.setSpeed(0);
+        stepper.disableOutputs();
         return EJECT_OK;
     }
-    delayMicroseconds(1);
+    stepper.run();
   }
   add_event("cant happen", 0);
 }
 
+/*
 int eject_cards(int n) {
   add_event("eject cards", n);
   if (card_detected() && !retract_card()) {
@@ -204,26 +229,25 @@ int count_cards(int delay_ms = 0) {
     }
   }
 }
+*/
 
 void hopper_init()
 {
-  pinMode(MOTOR_PWM_PIN, OUTPUT);
-  pinMode(MOTOR_D1_PIN, OUTPUT);
-  pinMode(MOTOR_D2_PIN, OUTPUT);
-
-  pinMode(FAN_PWM_PIN, OUTPUT);
-  pinMode(FAN_D1_PIN, OUTPUT);
-  pinMode(FAN_D2_PIN, OUTPUT);
-
-
-  pinMode(DETECT_PIN, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(DETECT_PIN), card_interrupt, CHANGE);
+  stepper.setEnablePin(MOTOR_ENABLE_PIN);
+  stepper.setMaxSpeed(10000);
+  stepper.setAcceleration(5000);
+  pinMode(DECK_PIN, INPUT);
+  pinMode(CARD_PIN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(CARD_PIN), card_interrupt, CHANGE);
+  pinMode(FAN_PIN, OUTPUT);
+  stepper.disableOutputs();
 }
 
 void hopper_check()
 {
-  if (fanSpeed > 0 && millis() > fanOffMs) {
+  if (fanOffMs != 0 && millis() > fanOffMs) {
     fan_speed(0);
     fanOffMs = 0;
   }
+  stepper.run();
 }
