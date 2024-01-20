@@ -13,6 +13,7 @@
 
 #define MOTOR_ADDR        0x3
 #define MOTOR_CMD_EJECT   1
+#define MOTOR_CMD_READY   2
 
 #define EJECT_OK          1
 #define EJECT_FAILED      2

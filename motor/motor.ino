@@ -44,12 +44,21 @@ void loop() {
     dump_events();
      while (digitalRead(BUTTON2_PIN) == HIGH);
   }
-  if (next_cmd == MOTOR_CMD_EJECT) {
+  switch (next_cmd) {
+  case MOTOR_CMD_READY:
+    dprintf("got ready cmd");
+    fan_on();
+    break;
+  case MOTOR_CMD_EJECT:
     dprintf("got eject cmd");
     int result = eject_card();
     dprintf("eject result=%d", result);
     next_result = result;
     next_cmd = 0;
+    break;
+  default:
+    next_cmd = 0;
+    break;
   }
 
   hopper_check();

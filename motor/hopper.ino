@@ -7,6 +7,7 @@
 #define MOTOR1_PINS     6
 #define MOTOR2_PINS     9
 #define FAN_PIN         12
+#define MAX_VOLTS       12
 
 class DCMotor {
   public:
@@ -19,7 +20,7 @@ class DCMotor {
     {
       rpm = 0;
       minRPM = rpm6v / 6;
-      maxRPM = rpm6v * 2; // 12v power supply (overdrive)
+      maxRPM = (rpm6v * MAX_VOLTS) / 6; // power supply (overdrive)
     }
 
     void init()
@@ -60,26 +61,37 @@ class DCMotor {
       digitalWrite(mot1, rpm < 0 ? LOW : HIGH);
       digitalWrite(mot2, rpm > 0 ? LOW : HIGH);
       this->rpm = rpm;
-      add_event(name, value);
+      add_event(name, rpm);
    }
 };
+
+// Eject Stages:
+// 0:  retract previous card (if detected)
+// 1:  feed card, both wheels forward at feed_speed
+// 2:  transport card, card detected, both wheel forward at transport_speed
+// 3:  eject card, card disengaged from first wheel (timed), reverse first, second forward at eject_speed
+// 4:  retracting, card no longer detected, reverse both wheels, retract any followers just to be sure.
+// 5: done
+
+enum eject_state {
+  WAITING, FEEDING, TRANSPORTING, EJECTING, RETRACTING, DONE
+};
+
+volatile unsigned long state_ms = 0;
+volatile eject_state state = WAITING;
 
 DCMotor motor1("motor1", 130, MOTOR1_PINS);
 DCMotor motor2("motor2", 2500, MOTOR2_PINS);
 
 int feedRPM = 0;
+int transportRPM = 0;
 int ejectRPM = 0;
+int retractRPM = 0;
 unsigned long feedReverseMs = 0;
 unsigned long cardDetectMs = 0;
 
-int fanSpeed = 0;
+unsigned long fanOnMs = 0;
 unsigned long fanOffMs = 0;
-
-enum eject_state {
-  WAITING, FEEDING, EJECTING, RETRACTING, DONE
-};
-volatile unsigned long state_ms = 0;
-volatile eject_state state = WAITING;
 
 void set_state(int s) 
 {
@@ -88,13 +100,29 @@ void set_state(int s)
   state_ms = millis();
 }
 
-void fan_speed(int speed)
+void fan_on()
 {
-  if (speed != fanSpeed) {
-    digitalWrite(FAN_PIN, speed == 0 ? LOW : HIGH);
-    fanSpeed = speed;
-    add_event("fan", speed);
+  digitalWrite(FAN_PIN, HIGH);
+  fanOnMs = millis();
+  fanOffMs = fanOnMs + 1000;
+}
+
+void fan_ready()
+{
+  if (fanOnMs == 0) {
+    fan_on();
   }
+  while (millis() < fanOnMs + 1000) {
+    delay(1);
+  }
+  fanOffMs = millis() + 2*1000;
+}
+
+void fan_off()
+{
+    digitalWrite(FAN_PIN, LOW);
+    fanOnMs = 0;
+    fanOffMs = 0;
 }
 
 int deck_detected()
@@ -117,7 +145,9 @@ void card_interrupt() {
     // card detected
     switch (state) {
         case FEEDING:
-          set_state(EJECTING);
+          set_state(TRANSPORTING);
+          motor1.speed(transportRPM);
+          motor2.speed(transportRPM);
           cardDetectMs = millis();
           break;
       }
@@ -125,10 +155,11 @@ void card_interrupt() {
     add_event("void_interrupt", state);
     // no card detected
     switch (state) {
+      case TRANSPORTING:
       case EJECTING:
-        motor1.speed(-feedRPM);
-        motor2.speed(-feedRPM);
         set_state(RETRACTING);
+        motor1.speed(retractRPM);
+        motor2.speed(retractRPM);
         break;
     }
   }
@@ -138,19 +169,15 @@ void stop_everything()
 {
     motor1.idle();
     motor2.idle();
-    fan_speed(0);
-    fanOffMs = 0;
+    fan_off();
 }
 
 int retract_card() {
   add_event("rectact_card", 0);
 
-  if (fanSpeed == 0) {
-    fan_speed(1);
-    delay(1000);
-  }
-  motor1.speed(-feedRPM);
-  motor2.speed(-feedRPM);
+  fan_ready();
+  motor1.speed(retractRPM);
+  motor2.speed(retractRPM);
 
   set_state(RETRACTING);
   while (state == RETRACTING && card_detected() && millis() < state_ms + 1000) {
@@ -158,6 +185,7 @@ int retract_card() {
   }
   if (card_detected() == 0) {
     add_event("retract card success", 1);
+    delay(20);
     motor1.idle();
     motor2.idle();
     return 1;
@@ -172,6 +200,7 @@ int eject_card() {
   reset_events();
   add_event("eject_card", 0);
   if (card_detected() && !retract_card()) {
+    add_event("failed to retract", 0);
     stop_everything();
     return HOPPER_STUCK;
   }
@@ -180,11 +209,7 @@ int eject_card() {
     stop_everything();
     return HOPPER_EMPTY;
   }
-  if (fanSpeed == 0) {
-    fan_speed(1);
-    delay(1000);
-  }
-  fanOffMs = millis() + 5*1000;
+  fan_ready();
 
   set_state(FEEDING);
   motor1.speed(feedRPM);
@@ -201,20 +226,23 @@ int eject_card() {
       case FEEDING:
         if (now > state_ms + 500) {
           set_state(DONE);
-          add_event("eject card failed (hopper empty)", HOPPER_EMPTY);
+          add_event("eject card failed (timeout)", HOPPER_STUCK);
           stop_everything();
-          return HOPPER_EMPTY;
+          return HOPPER_STUCK;
         }
         break;
-      case EJECTING:
+      case TRANSPORTING:
         if (cardDetectMs != 0 && now > cardDetectMs + feedReverseMs) {
-          motor1.speed(-feedRPM);
+          set_state(EJECTING);
+          motor1.speed(retractRPM);
           motor2.speed(ejectRPM);
           cardDetectMs = 0;
         }
         break;
+      case EJECTING:
+        break;
       case RETRACTING:
-        if (now < state_ms + 20 || card_detected()) {
+        if (now < state_ms + 50 || card_detected()) {
           break;
         }
         add_event("retract complete", now - state_ms);
@@ -228,8 +256,7 @@ int eject_card() {
           return HOPPER_STUCK;
         }
         if (!deck_detected()) {
-          fan_speed(0);
-          fanOffMs = 0;
+          fan_off();
         }
         add_event("eject card success", 0);
         motor1.idle();
@@ -251,8 +278,11 @@ int set_eject_speed(int cardsPerSecond)
 
   ejectRPM = max(motor2.minRPM, min(desiredRPM, motor2.maxRPM));
   feedRPM = max(motor1.minRPM, min(ejectRPM, motor1.maxRPM));
+  transportRPM = min(2*ejectRPM, min(motor1.maxRPM, motor2.maxRPM));
+  retractRPM = -feedRPM;
+
   feedReverseMs = (1000 * 60.0 * cardDisengageLength) / (feedRPM * wheelCircumference); 
-  dprintf("ejectRPM=%d, feedRPM=%d, feedReverseMs=%lu", ejectRPM, feedRPM, feedReverseMs);
+  dprintf("feedRPM=%d, transportRPM=%d, ejectRPM=%d, retractRPM=%d, feedReverseMs=%lu", feedRPM, transportRPM, ejectRPM, retractRPM, feedReverseMs);
 }
 
 void hopper_init()
@@ -265,13 +295,12 @@ void hopper_init()
   attachInterrupt(digitalPinToInterrupt(CARD_PIN), card_interrupt, CHANGE);
   pinMode(FAN_PIN, OUTPUT);
 
-  set_eject_speed(5);
+  set_eject_speed(20);
 }
 
 void hopper_check()
 {
   if (fanOffMs != 0 && millis() > fanOffMs) {
-    fan_speed(0);
-    fanOffMs = 0;
+    fan_off();
   }
 }

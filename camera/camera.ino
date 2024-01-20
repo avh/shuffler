@@ -81,13 +81,22 @@ void handle_cardsuit_bmp(HTTP& http)
   handle_bmp(http, cardsuit, "CardSuit Follows");
 }
 
+void ready_card()
+{
+  Wire.beginTransmission(MOTOR_ADDR);
+  Wire.write(MOTOR_CMD_READY);
+  Wire.endTransmission();
+}
+
 int eject_card()
 {
   Wire.beginTransmission(MOTOR_ADDR);
   Wire.write(MOTOR_CMD_EJECT);
   Wire.endTransmission();
   while (1) { 
-    if (Wire.requestFrom(MOTOR_ADDR, 1) != 1) {
+    int r = Wire.requestFrom(MOTOR_ADDR, 1);
+    if (r != 1) {
+      dprintf("CMD_TIMEOUT = %d", r);
       return CMD_TIMEOUT;
     }
     //while (!Wire.available());
@@ -166,11 +175,12 @@ void handle_train(HTTP &http)
     http.end();
     return;
   }
-
+  
   // reset
   cardsuit_col = 0;
   cardsuit_row = 0;
   cardsuit.clear();
+  ready_card();
 
   int count = 0;
   for (int i = 0 ; i < 53 ; i++) {
@@ -263,6 +273,7 @@ void handle_check(HTTP &http)
   cardsuit_col = 0;
   cardsuit_row = 0;
   cardsuit.clear();
+  ready_card();
 
   int count = 0;
   for (int i = 0 ; i < 53 ; i++) {
