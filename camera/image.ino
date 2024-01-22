@@ -70,7 +70,11 @@ void Image::clear()
 }
 void Image::debug(const char *msg)
 {
-  dprintf("%s[%p,%dx%d,%d%s]",msg, data, width, height, stride, owned ? ",owned" : "");
+  if (data != NULL) {
+    dprintf("%s[%p,%dx%d,%d%s]",msg, data, width, height, stride, owned ? ",owned" : "");
+  } else {
+    dprintf("%s (not allocated)", msg);
+  }
 }
 
 bool Image::locate(Image &tmp, Image &card, Image &suit)
@@ -80,7 +84,7 @@ bool Image::locate(Image &tmp, Image &card, Image &suit)
   bzero((void *)sums.get(), n*sizeof(int));
 
   // determine horizontal position
-  for (int c = 0 ; c < width ; c++) {
+  for (int c = 4 ; c < width-4 ; c++) {
     int sum = 0;
     pixel *p = data + c;
     for (int i = 0 ; i < height ; i++, p += stride) {
@@ -111,9 +115,10 @@ bool Image::locate(Image &tmp, Image &card, Image &suit)
       pmin = min(pmin, src[c]);
       pmax = max(pmax, src[c]);
     }
+    dprintf("%4d: contrast pmin=%d, pmax=%d", r, pmin, pmax);
     //int pmax = 250 - (r * 17)/10;
     //int pmin = 150 - (r * 125)/100;
-    int offset = (pmin < pmax*3/4) ? pmin : 0;
+    int offset = (pmin < pmax-40) ? pmin : 0;
     int scale = pmax - offset;
     //int offset = 0;
     //int scale = 255;
@@ -124,7 +129,7 @@ bool Image::locate(Image &tmp, Image &card, Image &suit)
   }
 
   // determine vertical location
-  int ycard = tmp.vlocate(4, 25);
+  int ycard = tmp.vlocate(0, 25);
   int ysuit = tmp.vlocate(ycard + SUIT_OFFSET - 1, ycard + SUIT_OFFSET + 10);
   //dprintf("locate X=%d, YC=%d, YS=%d", x, ycard, ysuit);
   card = tmp.crop(0, ycard, CARD_WIDTH, CARD_HEIGHT);
@@ -144,8 +149,9 @@ int Image::vlocate(int ymin, int ymax)
       pmin = min(pmin, *src);
       pmax = max(pmax, *src);
     }
-    if (pmax - pmin > 60) {
-      return y;
+    dprintf("%3d: ymin=%d, ymax=%d", y, pmin, pmax);
+    if (pmax - pmin > 100) {
+      return max(ymin, y-1);
     }
   }
   return ymin;
@@ -166,13 +172,13 @@ int Image::match(const Image &img)
         dist += d*d;
       }
     }
-    dprintf("match %d = %d", i, dist);
+    //dprintf("match %d = %d", i, dist);
     if (bestd > dist) {
       bestd = dist;
       bestm = i;
     }
   }
-  dprintf("bestm=%d, bestd=%d", bestm, bestd);
+  //dprintf("bestm=%d, bestd=%d", bestm, bestd);
   return bestm;
 }
 

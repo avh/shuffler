@@ -4,7 +4,7 @@
 
 void dprintf(char *fmt, ...)
 {
-  char buf[64];
+  char buf[128];
   va_list args;
   va_start(args, fmt);
   vsnprintf(buf, sizeof(buf), fmt, args);

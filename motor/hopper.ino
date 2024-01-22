@@ -4,6 +4,7 @@
 
 #define CARD_PIN        2
 #define DECK_PIN        5
+#define MOTOR_6VRPM     500
 #define MOTOR1_PINS     6
 #define MOTOR2_PINS     9
 #define FAN_PIN         12
@@ -80,8 +81,8 @@ enum eject_state {
 volatile unsigned long state_ms = 0;
 volatile eject_state state = WAITING;
 
-DCMotor motor1("motor1", 130, MOTOR1_PINS);
-DCMotor motor2("motor2", 2500, MOTOR2_PINS);
+DCMotor motor1("motor1", MOTOR_6VRPM, MOTOR1_PINS);
+DCMotor motor2("motor2", MOTOR_6VRPM, MOTOR2_PINS);
 
 int feedRPM = 0;
 int transportRPM = 0;
@@ -272,7 +273,7 @@ int set_eject_speed(int cardsPerSecond)
   float wheelRadius = 23;
   float wheelCircumference = 2*3.1415*wheelRadius;
   float cardLength = 90;
-  float cardDisengageLength = 60;
+  float cardDisengageLength = 80 + 20;
 
   float desiredRPM = 60 * cardsPerSecond * cardLength / wheelCircumference;
 
@@ -295,7 +296,7 @@ void hopper_init()
   attachInterrupt(digitalPinToInterrupt(CARD_PIN), card_interrupt, CHANGE);
   pinMode(FAN_PIN, OUTPUT);
 
-  set_eject_speed(20);
+  set_eject_speed(10);
 }
 
 void hopper_check()

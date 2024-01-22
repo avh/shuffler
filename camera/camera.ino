@@ -94,9 +94,12 @@ int eject_card()
   Wire.write(MOTOR_CMD_EJECT);
   Wire.endTransmission();
   while (1) { 
+    // give it some time
+    delay(20);
+    unsigned long tm = millis();
     int r = Wire.requestFrom(MOTOR_ADDR, 1);
     if (r != 1) {
-      dprintf("CMD_TIMEOUT = %d", r);
+      dprintf("CMD_TIMEOUT = %d, tm=%ul", r, millis() - tm);
       return CMD_TIMEOUT;
     }
     //while (!Wire.available());
@@ -199,7 +202,7 @@ void handle_train(HTTP &http)
 
     // eject
     int eject_result = eject_card();
-    dprintf("%3d: eject %dms, result=%d", i, millis() - ms, eject_result);
+    //dprintf("%3d: eject %dms, result=%d", i, millis() - ms, eject_result);
     if (eject_result != EJECT_OK) {
       break;
     }
@@ -280,7 +283,7 @@ void handle_check(HTTP &http)
     unsigned long ms = millis();
     // capture
     int capture_result = capture_frame();
-    dprintf("%3d: capture %dms, result=%d", i, millis() - ms, capture_result);
+    //dprintf("%3d: capture %dms, result=%d", i, millis() - ms, capture_result);
     if (capture_result == 0) {
       count++;
       if (frame.locate(tmp, last_card, last_suit)) {
@@ -305,7 +308,7 @@ void handle_check(HTTP &http)
 
     // eject
     int eject_result = eject_card();
-    dprintf("%3d: eject %dms, result=%d", i, millis() - ms, eject_result);
+    //dprintf("%3d: eject %dms, result=%d", i, millis() - ms, eject_result);
     if (eject_result != EJECT_OK) {
       break;
     }
@@ -324,7 +327,7 @@ void setup() {
   util_init("camera");
   flash_init();
   Wire.begin();
-  Wire.setTimeout(1000);
+  Wire.setTimeout(2000);
   capture_init();
   image_init();
   http_init();
@@ -346,7 +349,16 @@ void setup() {
   if (bmp_load("/user/www/cards.bmp", card_master) != 0 || bmp_load("/user/www/suits.bmp", suit_master) != 0) {
     dprintf("note: failed to load card/suit masters");
   }
-
+  if (card_master.data != NULL && card_master.width != CARD_WIDTH*14) {
+    dprintf("warning: ignoring card_master, wrong size");
+    card_master.free();
+    suit_master.free();
+  }
+  if (suit_master.data != NULL && suit_master.width != SUIT_WIDTH*5) {
+    dprintf("warning: ignoring suit_master, wrong size");
+    card_master.free();
+    suit_master.free();
+  }
   dprintf("ready...");
 }
 

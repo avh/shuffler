@@ -57,7 +57,7 @@ int capture_frame()
   }
   unpack_565((unsigned short *)fb.getBuffer(), 160, frame);
   frame_nr = frame_nr + 1;
-  captureNextMs = millis() + 33;
+  captureNextMs = millis() + 40;
   return 0;
 }
 void capture_init()

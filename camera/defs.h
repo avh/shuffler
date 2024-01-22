@@ -26,10 +26,10 @@
 #define CARDSUIT_NCOLS    14
 #define CARDSUIT_NROWS    4
 
-#define CARDSUIT_WIDTH        22
-#define CARDSUIT_HEIGHT       60
+#define CARDSUIT_WIDTH        21
+#define CARDSUIT_HEIGHT       62
 #define CARD_WIDTH            CARDSUIT_WIDTH
-#define CARD_HEIGHT           30
+#define CARD_HEIGHT           31
 #define SUIT_WIDTH            CARDSUIT_WIDTH
 #define SUIT_HEIGHT           25
 #define SUIT_OFFSET           (CARDSUIT_HEIGHT - SUIT_HEIGHT)
